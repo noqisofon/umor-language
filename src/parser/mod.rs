@@ -380,7 +380,7 @@ mod tests {
     use crate::tokenize;
 
     fn parse_src(src: &str) -> Program {
-        let tokens = tokenize(src);
+        let tokens = tokenize(src).unwrap();
         parse(&tokens).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"))
     }
 
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn case6_subscript_desugaring() {
-        let tokens = tokenize("売り上げ（1）");
+        let tokens = tokenize("売り上げ（1）").unwrap();
         let mut pos = 0usize;
         let mut out = Vec::new();
         parse_atom_with_subscripts(&tokens, &mut pos, &mut out).unwrap();
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn chained_subscript_desugaring() {
-        let tokens = tokenize("ダンジョンマップ（X軸座標）（Y座標）");
+        let tokens = tokenize("ダンジョンマップ（X軸座標）（Y座標）").unwrap();
         let mut pos = 0usize;
         let mut out = Vec::new();
         parse_atom_with_subscripts(&tokens, &mut pos, &mut out).unwrap();
@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn unclosed_definition_is_a_parse_error() {
-        let tokens = tokenize("挨拶する とは\n「こんにちは」を　表示する");
+        let tokens = tokenize("挨拶する とは\n「こんにちは」を　表示する").unwrap();
         assert!(parse(&tokens).is_err());
     }
 }

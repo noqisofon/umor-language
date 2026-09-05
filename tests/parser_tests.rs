@@ -8,7 +8,7 @@ use umor::parser::check_scopes;
 use umor::{parse, tokenize, Definition, Expr};
 
 fn parse_src(src: &str) -> umor::Program {
-    let tokens = tokenize(src);
+    let tokens = tokenize(src).unwrap();
     parse(&tokens).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"))
 }
 
