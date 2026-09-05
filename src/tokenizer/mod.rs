@@ -22,6 +22,13 @@ pub enum TokenKind {
     CharLiteral(char),
     /// 数値リテラル（文字列のまま。パースは後続フェーズに委ねる）。
     NumberLiteral(String),
+    /// 添字アクセス糖衣構文の開き括弧（`（`/`(`）。
+    ///
+    /// 直前のトークンに空白なしで隣接する丸括弧のみがこれになる。
+    /// 空白を挟んだ丸括弧はコメントとして読み飛ばされ、トークンにならない。
+    OpenParen,
+    /// 添字アクセス糖衣構文の閉じ括弧（`）`/`)`）。
+    CloseParen,
 }
 
 /// 1つのトークン。位置情報とソース上の生表記を保持する。
@@ -82,11 +89,47 @@ fn contains_digit(chars: &[char]) -> bool {
     chars.iter().any(|&c| is_digit_char(c))
 }
 
+/// 空白なしで語幹に直接続きうる構造キーワード（長い順）。
+///
+/// 「挨拶するとは」「Xは」のように、分かち書きの区切り（空白）を挟まずに
+/// キーワードが語幹へ直接くっつくことがあるため、送り仮名除去の前に
+/// これらのキーワードを末尾から分離する。
+const KEYWORD_SUFFIXES: &[&str] = &["とは", "は"];
+
+/// `raw` の末尾が構造キーワードで終わっており、かつキーワードの前に
+/// 語幹部分が残る場合、`(語幹, キーワード)` を返す。
+fn split_trailing_keyword(raw: &str) -> Option<(&str, &str)> {
+    // キーワードそのもの（例:「とは」）は、それ自身が「は」で終わっていても
+    // それ以上分割しない。
+    if KEYWORD_SUFFIXES.contains(&raw) {
+        return None;
+    }
+    for kw in KEYWORD_SUFFIXES {
+        if raw.len() > kw.len() && raw.ends_with(kw) {
+            return Some((&raw[..raw.len() - kw.len()], kw));
+        }
+    }
+    None
+}
+
 /// 生トークン（区切り文字を含まない1塊の文字列）を分類し、トークンとして積む。
+///
+/// 語幹に空白なしで直接続く構造キーワード（`とは`/`は`）がある場合、
+/// 送り仮名除去より先にそれを分離する（例: 「Xは」→ Word("x") + Word("は")）。
 ///
 /// 先頭が数値パターンで構成される場合、数値部分と残り部分（助数詞等）を
 /// 分割して2つのトークンにする（例: 「５６０円」→ NumberLiteral("５６０") + Word("円")）。
 fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
+    if let Some((stem, keyword)) = split_trailing_keyword(raw) {
+        classify_and_push(stem, line, tokens);
+        tokens.push(Token {
+            kind: TokenKind::Word(keyword.to_string()),
+            raw: keyword.to_string(),
+            line,
+        });
+        return;
+    }
+
     let chars: Vec<char> = raw.chars().collect();
     let num_len = number_prefix_len(&chars);
 
@@ -154,9 +197,14 @@ fn find_from(chars: &[char], from: usize, pat: &[char]) -> Option<usize> {
 /// - 区切り文字（半角/全角スペース、タブ、半角/全角カンマ、半角/全角読点）で
 ///   単語を分割する（分かち書き）。
 /// - `「...」` `"..."` は文字列リテラル、`'X'` は文字リテラルとして認識する。
-/// - `（...）` `(...)` 、`※`〜行末、`コンパイル抑止。`〜`コンパイル抑止終り。` は
-///   コメントとして除去する。
+/// - `※`〜行末、`コンパイル抑止。`〜`コンパイル抑止終り。` はコメントとして除去する。
+/// - `（...）` `(...)` は、直前に区切り文字を挟む場合はコメントとして除去し、
+///   直前の語などに空白なしで隣接する場合は添字アクセス糖衣構文として
+///   `OpenParen`/`CloseParen` トークンを生成する（中身は通常どおり字句解析する）。
 /// - 単語の先頭が数値パターンの場合、数値部分を `NumberLiteral` として切り出す。
+/// - `。` は常に単独の `Word("。")` トークンとして切り出す。
+/// - 語幹に空白なしで直接続く構造キーワード（`とは`/`は`）は、送り仮名除去より
+///   先に分離される（例: 「Xは」→ Word("x") + Word("は")）。
 pub fn tokenize(src: &str) -> Vec<Token> {
     let chars: Vec<char> = src.chars().collect();
     let n = chars.len();
@@ -169,6 +217,8 @@ pub fn tokenize(src: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut buf = String::new();
     let mut buf_start_line = line;
+    // 添字アクセス糖衣構文として開かれた丸括弧の、対応する閉じ文字のスタック。
+    let mut open_paren_stack: Vec<char> = Vec::new();
 
     while i < n {
         let c = chars[i];
@@ -201,10 +251,40 @@ pub fn tokenize(src: &str) -> Vec<Token> {
             continue;
         }
 
-        // 丸括弧コメント: （...） または (...)
-        if c == '（' || c == '(' {
+        // 文の区切り: 。（常に単独のトークンとして切り出す）
+        if c == '。' {
             flush_word(&mut buf, buf_start_line, &mut tokens);
+            tokens.push(Token {
+                kind: TokenKind::Word("。".to_string()),
+                raw: "。".to_string(),
+                line,
+            });
+            i += 1;
+            buf_start_line = line;
+            continue;
+        }
+
+        // 丸括弧: 直前が区切り文字なしで語などに隣接する場合は添字アクセス
+        // 糖衣構文の開き括弧、それ以外（空白等で区切られている場合）は
+        // コメントとして中身ごと読み飛ばす。
+        if c == '（' || c == '(' {
+            let adjacent = i > 0 && !is_delimiter(chars[i - 1]);
             let close = if c == '（' { '）' } else { ')' };
+
+            if adjacent {
+                flush_word(&mut buf, buf_start_line, &mut tokens);
+                open_paren_stack.push(close);
+                tokens.push(Token {
+                    kind: TokenKind::OpenParen,
+                    raw: c.to_string(),
+                    line,
+                });
+                i += 1;
+                buf_start_line = line;
+                continue;
+            }
+
+            flush_word(&mut buf, buf_start_line, &mut tokens);
             i += 1;
             while i < n && chars[i] != close {
                 if chars[i] == '\n' {
@@ -215,6 +295,20 @@ pub fn tokenize(src: &str) -> Vec<Token> {
             if i < n {
                 i += 1; // 閉じ括弧を読み飛ばす
             }
+            buf_start_line = line;
+            continue;
+        }
+
+        // 添字アクセス糖衣構文の閉じ括弧（対応する開き括弧がスタックにある場合のみ）。
+        if (c == '）' || c == ')') && open_paren_stack.last() == Some(&c) {
+            flush_word(&mut buf, buf_start_line, &mut tokens);
+            open_paren_stack.pop();
+            tokens.push(Token {
+                kind: TokenKind::CloseParen,
+                raw: c.to_string(),
+                line,
+            });
+            i += 1;
             buf_start_line = line;
             continue;
         }
@@ -389,7 +483,10 @@ mod tests {
     #[test]
     fn number_literal_prefix_is_split_from_word() {
         let tokens = tokenize("５６０円を　売り上げに　入れ");
-        assert_eq!(tokens[0].kind, TokenKind::NumberLiteral("５６０".to_string()));
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::NumberLiteral("５６０".to_string())
+        );
         assert!(tokens
             .iter()
             .all(|t| !matches!(&t.kind, TokenKind::Word(w) if w.contains('５'))));
@@ -399,7 +496,10 @@ mod tests {
     fn plain_number_literal() {
         let tokens = tokenize("-1.23E-2");
         assert_eq!(tokens.len(), 1);
-        assert_eq!(tokens[0].kind, TokenKind::NumberLiteral("-1.23E-2".to_string()));
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::NumberLiteral("-1.23E-2".to_string())
+        );
     }
 
     #[test]
@@ -433,6 +533,80 @@ mod tests {
         let tokens = tokenize("表示する コンパイル抑止。 これは無効 コンパイル抑止終り。 実行する");
         let ws = words(&tokens);
         assert_eq!(ws, vec!["表示", "実行"]);
+    }
+
+    #[test]
+    fn keyword_suffix_is_split_from_stem_with_no_space() {
+        let tokens = tokenize("挨拶するとは");
+        assert_eq!(words(&tokens), vec!["挨拶", "とは"]);
+    }
+
+    #[test]
+    fn wa_particle_is_split_from_variable_name_with_no_space() {
+        let tokens = tokenize("Xは");
+        assert_eq!(words(&tokens), vec!["x", "は"]);
+    }
+
+    #[test]
+    fn standalone_keyword_is_not_split_further() {
+        let tokens = tokenize("とは");
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Word("とは".to_string()));
+    }
+
+    #[test]
+    fn period_is_always_its_own_token() {
+        let tokens = tokenize("すること。");
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &TokenKind::Word("すること".to_string()),
+                &TokenKind::Word("。".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn paren_adjacent_to_preceding_word_is_subscript_access() {
+        let tokens = tokenize("売り上げ（1）");
+        assert_eq!(
+            tokens.iter().map(|t| &t.kind).collect::<Vec<_>>(),
+            vec![
+                &TokenKind::Word("売り上".to_string()),
+                &TokenKind::OpenParen,
+                &TokenKind::NumberLiteral("1".to_string()),
+                &TokenKind::CloseParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn chained_subscript_access_produces_two_bracket_pairs() {
+        let tokens = tokenize("ダンジョンマップ（X軸座標）（Y座標）");
+        let kinds: Vec<&TokenKind> = tokens.iter().map(|t| &t.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &TokenKind::Word("ダンジョンマップ".to_string()),
+                &TokenKind::OpenParen,
+                &TokenKind::Word("x軸座標".to_string()),
+                &TokenKind::CloseParen,
+                &TokenKind::OpenParen,
+                &TokenKind::Word("y座標".to_string()),
+                &TokenKind::CloseParen,
+            ]
+        );
+    }
+
+    #[test]
+    fn paren_preceded_by_space_is_still_a_comment_not_subscript() {
+        let tokens = tokenize("実行する （これは説明）");
+        let ws = words(&tokens);
+        assert_eq!(ws, vec!["実行"]);
+        assert!(!tokens
+            .iter()
+            .any(|t| matches!(t.kind, TokenKind::OpenParen | TokenKind::CloseParen)));
     }
 
     #[test]

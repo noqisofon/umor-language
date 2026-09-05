@@ -96,7 +96,10 @@ mod tests {
             halfwidth_katakana_variant('ﾊ'),
             Some(('ハ', Some('バ'), Some('パ')))
         );
-        assert_eq!(halfwidth_katakana_variant('ｶ'), Some(('カ', Some('ガ'), None)));
+        assert_eq!(
+            halfwidth_katakana_variant('ｶ'),
+            Some(('カ', Some('ガ'), None))
+        );
     }
 
     #[test]

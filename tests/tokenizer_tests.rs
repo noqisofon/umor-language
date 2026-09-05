@@ -63,6 +63,7 @@ fn case5_parenthetical_comment_is_excluded() {
             TokenKind::StringLiteral(s) => assert!(!s.contains("暫定的")),
             TokenKind::NumberLiteral(s) => assert!(!s.contains("暫定的")),
             TokenKind::CharLiteral(_) => {}
+            TokenKind::OpenParen | TokenKind::CloseParen => {}
         }
     }
 }
