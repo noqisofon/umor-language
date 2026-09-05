@@ -4,7 +4,7 @@ use umor::{tokenize, TokenKind};
 
 #[test]
 fn case1_basic_wakachigaki_and_okurigana_removal() {
-    let tokens = tokenize("「こんにちは。」を　表示する");
+    let tokens = tokenize("「こんにちは。」を　表示する").unwrap();
     let kinds: Vec<TokenKind> = tokens.into_iter().map(|t| t.kind).collect();
     assert_eq!(
         kinds,
@@ -19,7 +19,7 @@ fn case1_basic_wakachigaki_and_okurigana_removal() {
 #[test]
 fn case2_okurigana_variants_normalize_to_same_word() {
     for input in ["反応し", "反応する", "反応させる"] {
-        let tokens = tokenize(input);
+        let tokens = tokenize(input).unwrap();
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].kind, TokenKind::Word("反応".to_string()));
     }
@@ -28,22 +28,22 @@ fn case2_okurigana_variants_normalize_to_same_word() {
 #[test]
 fn case3_all_hiragana_words_are_not_stripped() {
     assert_eq!(
-        tokenize("ならば")[0].kind,
+        tokenize("ならば").unwrap()[0].kind,
         TokenKind::Word("ならば".to_string())
     );
     assert_eq!(
-        tokenize("つぎに")[0].kind,
+        tokenize("つぎに").unwrap()[0].kind,
         TokenKind::Word("つぎに".to_string())
     );
     assert_eq!(
-        tokenize("さもなければ")[0].kind,
+        tokenize("さもなければ").unwrap()[0].kind,
         TokenKind::Word("さもなければ".to_string())
     );
 }
 
 #[test]
 fn case4_number_and_josuushi() {
-    let tokens = tokenize("５６０円を　売り上げに　入れ");
+    let tokens = tokenize("５６０円を　売り上げに　入れ").unwrap();
     assert_eq!(
         tokens[0].kind,
         TokenKind::NumberLiteral("５６０".to_string())
@@ -56,7 +56,7 @@ fn case4_number_and_josuushi() {
 
 #[test]
 fn case5_parenthetical_comment_is_excluded() {
-    let tokens = tokenize("「こんにちは。」を 表示すること。 　　（これは暫定的な表示）");
+    let tokens = tokenize("「こんにちは。」を 表示すること。 　　（これは暫定的な表示）").unwrap();
     for t in &tokens {
         match &t.kind {
             TokenKind::Word(w) => assert!(!w.contains("暫定的")),
@@ -70,7 +70,7 @@ fn case5_parenthetical_comment_is_excluded() {
 
 #[test]
 fn case6_unsegmented_long_word_stays_one_token() {
-    let tokens = tokenize("赤い色で表示する");
+    let tokens = tokenize("赤い色で表示する").unwrap();
     assert_eq!(tokens.len(), 1);
     assert!(matches!(&tokens[0].kind, TokenKind::Word(_)));
 }

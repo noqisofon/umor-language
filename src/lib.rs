@@ -7,4 +7,4 @@ pub mod parser;
 pub mod tokenizer;
 
 pub use parser::{check_scopes, parse, Definition, Expr, ParseError, Program, ScopeError};
-pub use tokenizer::{tokenize, Token, TokenKind};
+pub use tokenizer::{tokenize, LexError, Token, TokenKind};
