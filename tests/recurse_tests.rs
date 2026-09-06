@@ -4,7 +4,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 use umor::parser::check_scopes;
-use umor::{parse, tokenize, Expr, Interpreter, Value};
+use umor::{parse, tokenize, Expr, Interpreter, RuntimeError, Value};
 
 fn parse_src(src: &str) -> umor::Program {
     let tokens = tokenize(src).unwrap();
@@ -115,6 +115,20 @@ fn test5_redefinition_idiom_and_recurse_are_independent() {
         *log.borrow(),
         vec!["やあ".to_string(), "こんにちは".to_string()]
     );
+}
+
+/// ADR-0008: 前世代が存在しない新規ワード名での自己言及（`再帰`ではなく
+/// 同名呼び出し）は、フォールバックせず未定義語エラーになる。
+#[test]
+fn adr0008_self_reference_with_no_prior_generation_is_undefined_word() {
+    let program = parse_src("未定義処理 とは、未定義処理する こと。");
+    let mut interp = Interpreter::new();
+    interp.load_program(&program);
+
+    let err = interp
+        .run_word("未定義処理")
+        .expect_err("前世代が存在しない自己言及は未定義語エラーになるはず");
+    assert_eq!(err, RuntimeError::UndefinedWord("未定義処理".to_string()));
 }
 
 #[test]
