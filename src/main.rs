@@ -43,10 +43,14 @@ fn run_repl() {
             Ok(l) => l,
             Err(_) => break,
         };
-        if line.trim().is_empty() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             print!("umor> ");
             io::stdout().flush().ok();
             continue;
+        }
+        if trimmed == "終了" || trimmed == "さよなら" {
+            break;
         }
         if let Err(e) = run_source(&mut interp, &line) {
             eprintln!("エラー: {e}");

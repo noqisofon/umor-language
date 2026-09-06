@@ -92,3 +92,102 @@ fn case5_repl_executes_each_line_immediately() {
         vec!["こんにちは".to_string(), "こんにちは".to_string()]
     );
 }
+
+#[test]
+fn issue9_repl_exits_on_owari_command() {
+    let mut child = Command::new(bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("umorバイナリの起動に失敗した");
+
+    let mut stdin = child.stdin.take().expect("stdinを取得できなかった");
+    writeln!(stdin, "「こんにちは」を　表示する。").unwrap();
+    writeln!(stdin, "終了").unwrap();
+    // `終了`でREPLが終了するはずなので、これ以降の行は実行されない。
+    writeln!(stdin, "「届かないはず」を　表示する。").unwrap();
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .expect("umorバイナリの終了待機に失敗した");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let shown: Vec<String> = stdout
+        .lines()
+        .map(|l| l.trim_start_matches("umor> ").to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(shown, vec!["こんにちは".to_string()]);
+}
+
+#[test]
+fn issue9_repl_exits_on_sayonara_command() {
+    let mut child = Command::new(bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("umorバイナリの起動に失敗した");
+
+    let mut stdin = child.stdin.take().expect("stdinを取得できなかった");
+    writeln!(stdin, "さよなら").unwrap();
+    writeln!(stdin, "「届かないはず」を　表示する。").unwrap();
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .expect("umorバイナリの終了待機に失敗した");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let shown: Vec<String> = stdout
+        .lines()
+        .map(|l| l.trim_start_matches("umor> ").to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert!(shown.is_empty());
+}
+
+#[test]
+fn issue9_word_named_owari_processing_is_unaffected() {
+    let mut child = Command::new(bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("umorバイナリの起動に失敗した");
+
+    let mut stdin = child.stdin.take().expect("stdinを取得できなかった");
+    writeln!(
+        stdin,
+        "終了処理 とは、「バイバイ」を　表示する こと。"
+    )
+    .unwrap();
+    writeln!(stdin, "終了処理。").unwrap();
+    drop(stdin);
+
+    let output = child
+        .wait_with_output()
+        .expect("umorバイナリの終了待機に失敗した");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let shown: Vec<String> = stdout
+        .lines()
+        .map(|l| l.trim_start_matches("umor> ").to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+    assert_eq!(shown, vec!["バイバイ".to_string()]);
+}
