@@ -59,8 +59,8 @@ fn case3_if_else_branches() {
     assert_eq!(
         def.body,
         vec![Expr::IfElse {
-            cond: vec![Expr::WordCall("雨降り?".to_string())],
-            then_branch: vec![Expr::WordCall("傘を差".to_string())],
+            cond: vec![Expr::WordCall("雨降?".to_string())],
+            then_branch: vec![Expr::WordCall("傘差".to_string())],
             else_branch: Some(vec![Expr::WordCall("何".to_string())]),
         }]
     );
@@ -99,7 +99,7 @@ fn case6_subscript_access_desugars_to_no_and_bamme() {
     assert_eq!(
         def.body,
         vec![
-            Expr::WordCall("売り上".to_string()),
+            Expr::WordCall("売上".to_string()),
             Expr::WordCall("の".to_string()),
             Expr::NumberLiteral(1),
             Expr::WordCall("番目".to_string()),

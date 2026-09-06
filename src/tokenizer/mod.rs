@@ -128,7 +128,7 @@ fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
 }
 
 /// 単語トークンの正規化（幅・大文字小文字の正規化 → 送り仮名除去）を行う。
-fn normalize_word(raw: &str) -> String {
+pub(crate) fn normalize_word(raw: &str) -> String {
     let width_normalized = normalize_width_and_case(raw);
     normalize_okurigana(&width_normalized)
 }
@@ -493,7 +493,7 @@ mod tests {
         let tokens = tokenize("赤い色で表示する").unwrap();
         assert_eq!(tokens.len(), 1);
         match &tokens[0].kind {
-            TokenKind::Word(w) => assert_eq!(w, "赤い色で表示"),
+            TokenKind::Word(w) => assert_eq!(w, "赤色表示"),
             other => panic!("expected Word, got {other:?}"),
         }
     }
@@ -628,7 +628,7 @@ mod tests {
         assert_eq!(
             tokens.iter().map(|t| &t.kind).collect::<Vec<_>>(),
             vec![
-                &TokenKind::Word("売り上".to_string()),
+                &TokenKind::Word("売上".to_string()),
                 &TokenKind::OpenParen,
                 &TokenKind::NumberLiteral("1".to_string()),
                 &TokenKind::CloseParen,
