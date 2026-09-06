@@ -1,8 +1,19 @@
 //! Umor 言語処理系のライブラリクレート。
 //!
-//! 現時点では字句解析器（tokenizer）のみを提供する。
-//! パーサ・単語辞書・スタックマシン・型検査器は後続タスクで実装する。
+//! 字句解析器（tokenizer）・構文解析器（parser）・評価器（interpreter）を
+//! 提供する。型検査器は後続タスクで実装する。
 
+mod error;
+pub mod interpreter;
+pub mod parser;
+mod runner;
 pub mod tokenizer;
 
-pub use tokenizer::{tokenize, Token, TokenKind};
+pub use error::UmorError;
+pub use interpreter::{Interpreter, RuntimeError, RuntimeErrorReport, Value};
+pub use parser::{
+    check_scopes, parse, parse_top_level_item, Definition, Expr, ParseError, Program, ScopeError,
+    TopLevelItem,
+};
+pub use runner::run_source;
+pub use tokenizer::{tokenize, LexError, Token, TokenKind};
