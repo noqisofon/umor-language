@@ -92,6 +92,7 @@ fn check_expr(
             }
         }
         Expr::NumberLiteral(_) => {}
+        Expr::SelfRecurse => {}
         Expr::IfElse {
             cond,
             then_branch,

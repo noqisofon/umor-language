@@ -84,10 +84,10 @@ fn parse_top_level_expr_sequence(
         if is_word(tokens, *pos, "ならば") {
             *pos += 1;
             let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos)?;
+            let then_branch = parse_branch(tokens, pos, false)?;
             let else_branch = if is_word(tokens, *pos, "そうでなければ") {
                 *pos += 1;
-                Some(parse_branch(tokens, pos)?)
+                Some(parse_branch(tokens, pos, false)?)
             } else {
                 None
             };
@@ -100,7 +100,7 @@ fn parse_top_level_expr_sequence(
             continue;
         }
 
-        parse_atom_with_subscripts(tokens, pos, &mut exprs)?;
+        parse_atom_with_subscripts(tokens, pos, &mut exprs, false)?;
     }
     Ok(exprs)
 }
@@ -227,7 +227,15 @@ fn parse_definition(
     pos: &mut usize,
     is_local: bool,
 ) -> Result<Definition, ParseError> {
+    let name_pos = *pos;
     let name = expect_any_word(tokens, pos)?;
+    if name == "再帰" {
+        return Err(ParseError::new(
+            "「再帰」は予約された構文キーワードのため、処理単語名として定義できません",
+            tokens,
+            name_pos,
+        ));
+    }
     expect_defining_keyword(tokens, pos)?;
 
     let mut locals = Vec::new();
@@ -320,10 +328,10 @@ fn parse_definition(
         if is_word(tokens, *pos, "ならば") {
             *pos += 1;
             let cond = std::mem::take(&mut body);
-            let then_branch = parse_branch(tokens, pos)?;
+            let then_branch = parse_branch(tokens, pos, true)?;
             let else_branch = if is_word(tokens, *pos, "そうでなければ") {
                 *pos += 1;
-                Some(parse_branch(tokens, pos)?)
+                Some(parse_branch(tokens, pos, true)?)
             } else {
                 None
             };
@@ -336,7 +344,7 @@ fn parse_definition(
             continue;
         }
 
-        parse_atom_with_subscripts(tokens, pos, &mut body)?;
+        parse_atom_with_subscripts(tokens, pos, &mut body, true)?;
     }
 
     Ok(Definition {
@@ -349,7 +357,11 @@ fn parse_definition(
 
 /// `ならば`/`そうでなければ`の節（then節・else節）を、`そうでなければ`または`つぎに`の
 /// 手前まで解析する。節の中にネストした`ならば`〜`つぎに`も再帰的に扱う。
-fn parse_branch(tokens: &[Token], pos: &mut usize) -> Result<Vec<Expr>, ParseError> {
+fn parse_branch(
+    tokens: &[Token],
+    pos: &mut usize,
+    in_definition: bool,
+) -> Result<Vec<Expr>, ParseError> {
     let mut exprs = Vec::new();
     loop {
         if is_word(tokens, *pos, "そうでなければ") || is_word(tokens, *pos, "つぎに") {
@@ -366,10 +378,10 @@ fn parse_branch(tokens: &[Token], pos: &mut usize) -> Result<Vec<Expr>, ParseErr
         if is_word(tokens, *pos, "ならば") {
             *pos += 1;
             let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos)?;
+            let then_branch = parse_branch(tokens, pos, in_definition)?;
             let else_branch = if is_word(tokens, *pos, "そうでなければ") {
                 *pos += 1;
-                Some(parse_branch(tokens, pos)?)
+                Some(parse_branch(tokens, pos, in_definition)?)
             } else {
                 None
             };
@@ -382,7 +394,7 @@ fn parse_branch(tokens: &[Token], pos: &mut usize) -> Result<Vec<Expr>, ParseErr
             continue;
         }
 
-        parse_atom_with_subscripts(tokens, pos, &mut exprs)?;
+        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
     }
     Ok(exprs)
 }
@@ -395,8 +407,9 @@ fn parse_atom_with_subscripts(
     tokens: &[Token],
     pos: &mut usize,
     out: &mut Vec<Expr>,
+    in_definition: bool,
 ) -> Result<(), ParseError> {
-    out.push(parse_single_atom(tokens, pos)?);
+    out.push(parse_single_atom(tokens, pos, in_definition)?);
 
     while is_open_paren(tokens, *pos) {
         *pos += 1; // 「（」を読み飛ばす
@@ -413,7 +426,7 @@ fn parse_atom_with_subscripts(
                     *pos,
                 ));
             }
-            parse_atom_with_subscripts(tokens, pos, out)?;
+            parse_atom_with_subscripts(tokens, pos, out, in_definition)?;
         }
         *pos += 1; // 「）」を読み飛ばす
 
@@ -423,7 +436,11 @@ fn parse_atom_with_subscripts(
     Ok(())
 }
 
-fn parse_single_atom(tokens: &[Token], pos: &mut usize) -> Result<Expr, ParseError> {
+fn parse_single_atom(
+    tokens: &[Token],
+    pos: &mut usize,
+    in_definition: bool,
+) -> Result<Expr, ParseError> {
     let kind = &tokens
         .get(*pos)
         .ok_or_else(|| ParseError::new("式が必要ですが入力が終了しました", tokens, *pos))?
@@ -436,6 +453,16 @@ fn parse_single_atom(tokens: &[Token], pos: &mut usize) -> Result<Expr, ParseErr
                 tokens,
                 *pos,
             ));
+        }
+        TokenKind::Word(w) if w == "再帰" => {
+            if !in_definition {
+                return Err(ParseError::new(
+                    "「再帰」は処理単語の定義内でのみ使用できます",
+                    tokens,
+                    *pos,
+                ));
+            }
+            Expr::SelfRecurse
         }
         TokenKind::Word(w) => Expr::WordCall(w.clone()),
         TokenKind::NumberLiteral(s) => Expr::NumberLiteral(parse_number_literal(s, tokens, *pos)?),
@@ -553,7 +580,7 @@ mod tests {
         let tokens = tokenize("売り上げ（1）").unwrap();
         let mut pos = 0usize;
         let mut out = Vec::new();
-        parse_atom_with_subscripts(&tokens, &mut pos, &mut out).unwrap();
+        parse_atom_with_subscripts(&tokens, &mut pos, &mut out, false).unwrap();
         assert_eq!(
             out,
             vec![
@@ -570,7 +597,7 @@ mod tests {
         let tokens = tokenize("ダンジョンマップ（X軸座標）（Y座標）").unwrap();
         let mut pos = 0usize;
         let mut out = Vec::new();
-        parse_atom_with_subscripts(&tokens, &mut pos, &mut out).unwrap();
+        parse_atom_with_subscripts(&tokens, &mut pos, &mut out, false).unwrap();
         assert_eq!(
             out,
             vec![
