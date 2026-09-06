@@ -17,13 +17,17 @@ mod ast;
 mod error;
 pub mod scope;
 
-pub use ast::{Definition, Expr, Program};
+pub use ast::{Definition, Expr, Program, TopLevelItem};
 pub use error::ParseError;
 pub use scope::{check_scopes, ScopeError};
 
 use crate::tokenizer::{Token, TokenKind};
 
 /// トークン列を構文解析し、[`Program`]を返す。
+///
+/// トップレベルにワード定義しか書けない前提のエントリポイント。トップレベル
+/// 即時実行式も扱いたい場合は[`parse_top_level_item`]をループで呼び出すこと
+/// （[`crate::run_source`]が、それをファイル実行・REPL向けに行っている）。
 pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
     let mut pos = 0usize;
     let mut definitions = Vec::new();
@@ -31,6 +35,74 @@ pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
         definitions.push(parse_definition(tokens, &mut pos, false)?);
     }
     Ok(Program { definitions })
+}
+
+/// トークン列の現在位置から、トップレベルの要素（ワード定義、または
+/// その場で実行される式の列）を1つだけ解析し、位置を進めて返す。
+///
+/// 先頭が`〈単語〉 とは`/`〈単語〉 は`の形であればワード定義として、
+/// そうでなければ`。`までの式の列として解析する。
+pub fn parse_top_level_item(tokens: &[Token], pos: &mut usize) -> Result<TopLevelItem, ParseError> {
+    if peek_word_then_keyword(tokens, *pos).is_some() {
+        let def = parse_definition(tokens, pos, false)?;
+        return Ok(TopLevelItem::Definition(def));
+    }
+    let exprs = parse_top_level_expr_sequence(tokens, pos)?;
+    Ok(TopLevelItem::Expr(exprs))
+}
+
+/// トップレベル式の列を、`。`が現れるまで解析する（`。`自体は消費する）。
+///
+/// ワード定義の`body`とは異なり、`こと。`で閉じることはできない
+/// （閉じるべきワード定義がこの文脈には存在しないため、`こと。`が
+/// 現れた場合は構文エラーにする）。
+fn parse_top_level_expr_sequence(
+    tokens: &[Token],
+    pos: &mut usize,
+) -> Result<Vec<Expr>, ParseError> {
+    let mut exprs = Vec::new();
+    loop {
+        if is_word(tokens, *pos, "。") {
+            *pos += 1;
+            break;
+        }
+        if *pos >= tokens.len() {
+            return Err(ParseError::new(
+                "トップレベルの式の列が「。」で閉じられないまま入力が終了しました",
+                tokens,
+                *pos,
+            ));
+        }
+        if is_word(tokens, *pos, "こと") && is_word(tokens, *pos + 1, "。") {
+            return Err(ParseError::new(
+                "「こと。」に対応するワード定義がありません",
+                tokens,
+                *pos,
+            ));
+        }
+
+        if is_word(tokens, *pos, "ならば") {
+            *pos += 1;
+            let cond = std::mem::take(&mut exprs);
+            let then_branch = parse_branch(tokens, pos)?;
+            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
+                *pos += 1;
+                Some(parse_branch(tokens, pos)?)
+            } else {
+                None
+            };
+            expect_word(tokens, pos, "つぎに")?;
+            exprs.push(Expr::IfElse {
+                cond,
+                then_branch,
+                else_branch,
+            });
+            continue;
+        }
+
+        parse_atom_with_subscripts(tokens, pos, &mut exprs)?;
+    }
+    Ok(exprs)
 }
 
 fn word_at(tokens: &[Token], pos: usize) -> Option<&str> {
@@ -358,6 +430,13 @@ fn parse_single_atom(tokens: &[Token], pos: &mut usize) -> Result<Expr, ParseErr
         .kind;
 
     let expr = match kind {
+        TokenKind::Word(w) if w == "。" => {
+            return Err(ParseError::new(
+                "「。」はここでは使用できません（区切り記号としての「。」を式の中で使うことはできません）",
+                tokens,
+                *pos,
+            ));
+        }
         TokenKind::Word(w) => Expr::WordCall(w.clone()),
         TokenKind::NumberLiteral(s) => Expr::NumberLiteral(parse_number_literal(s, tokens, *pos)?),
         TokenKind::StringLiteral(s) => Expr::WordCall(format!("「{s}」")),

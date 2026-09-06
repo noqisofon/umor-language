@@ -10,7 +10,7 @@ mod value;
 pub use error::{RuntimeError, RuntimeErrorReport};
 pub use value::Value;
 
-use crate::parser::{Definition, Expr, Program};
+use crate::parser::{Definition, Expr, Program, TopLevelItem};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -101,6 +101,19 @@ impl Interpreter {
     /// 指定した名前のワードを1つ実行する（テスト・動作確認用のエントリポイント）。
     pub fn run_word(&mut self, name: &str) -> Result<(), RuntimeError> {
         self.dispatch(name)
+    }
+
+    /// [`TopLevelItem`]を1つ処理する。ワード定義なら辞書へ登録するだけ（実行しない）、
+    /// トップレベル式の列なら即座に評価する。ファイル実行・REPL共通コア
+    /// （[`crate::run_source`]）から、逐次パースしたトップレベル要素ごとに呼ばれる。
+    pub fn process_top_level_item(&mut self, item: &TopLevelItem) -> Result<(), RuntimeError> {
+        match item {
+            TopLevelItem::Definition(def) => {
+                self.load_definition(def);
+                Ok(())
+            }
+            TopLevelItem::Expr(exprs) => self.eval_exprs(exprs),
+        }
     }
 
     /// [`run_word`](Self::run_word)などが返した[`RuntimeError`]に、実行時点の
