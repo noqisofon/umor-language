@@ -75,8 +75,10 @@ fn case2_if_else_false_branch() {
 
 #[test]
 fn case3_variable_declaration_assignment_and_read() {
+    // 「入れる」（送り仮名除去後は「入」）で代入し、「読む」（同「読」）で
+    // 変数参照を明示的に現在値へ解決してから表示する。
     let program =
-        build("カウンターとは\n    Xは 変数\n    0を　X に　いれる\n    X を　表示する\nこと。");
+        build("カウンターとは\n    Xは 変数\n    0を　X に　入れる\n    X 読む 表示する\nこと。");
     let log = Rc::new(RefCell::new(Vec::<String>::new()));
 
     let mut interp = Interpreter::new();
@@ -88,9 +90,44 @@ fn case3_variable_declaration_assignment_and_read() {
 }
 
 #[test]
+fn case3b_displaying_a_variable_without_read_shows_its_var_ref_representation() {
+    // 「読」を挟まずに変数をそのまま`表示`すると、値そのものではなく
+    // 変数参照であることが分かる文字列表現が出力される（Phase 1の仕様）。
+    let program =
+        build("カウンターとは\n    Xは 変数\n    0を　X に　入れる\n    X 表示する\nこと。");
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+
+    let mut interp = Interpreter::new();
+    install_logging_display(&mut interp, log.clone());
+    interp.load_program(&program);
+
+    interp.run_word("カウンター").expect("実行に失敗した");
+    assert_eq!(log.borrow().len(), 1);
+    let shown = &log.borrow()[0];
+    assert!(shown.contains('x') && shown.contains('0'), "got {shown:?}");
+    assert_ne!(shown, "0");
+}
+
+#[test]
+fn case3c_arithmetic_on_an_unread_variable_is_a_type_error() {
+    // Phase 1では「読」を挟まない限り、変数参照は具体的な値として扱えない。
+    let program = build("たすとは\n    Xは 変数\n    1を　X に　入れる\n    X 1 加\nこと。");
+    let mut interp = Interpreter::new();
+    interp.load_program(&program);
+
+    let err = interp
+        .run_word("たす")
+        .expect_err("未解決の変数参照での算術演算はエラーになるはず");
+    assert!(
+        matches!(err, RuntimeError::TypeMismatch { .. }),
+        "got {err:?}"
+    );
+}
+
+#[test]
 fn case4_local_word_sees_parent_variable() {
     let program = build(
-        "親処理とは\n    子処理とは\n        X を　表示する\n    本体とは\n        Xは 変数\n        42 を　X に　いれる\n        子処理\nこと。",
+        "親処理とは\n    子処理とは\n        X 読む 表示する\n    本体とは\n        Xは 変数\n        42 を　X に　入れる\n        子処理\nこと。",
     );
     let log = Rc::new(RefCell::new(Vec::<String>::new()));
 
@@ -108,7 +145,7 @@ fn case5_sibling_local_variable_is_reported_as_undefined() {
     // 評価器が兄弟局所処理単語の変数へのアクセスを「未定義ワード」として
     // 検出することを確認する。
     let program = build(
-        "親処理とは\n    子処理１とは\n        Yは 変数\n    子処理２とは\n        Y に　1を　いれる\n    本体とは\n        子処理１\n        子処理２\nこと。",
+        "親処理とは\n    子処理１とは\n        Yは 変数\n    子処理２とは\n        Y に　1を　入れる\n    本体とは\n        子処理１\n        子処理２\nこと。",
     );
     let mut interp = Interpreter::new();
     interp.load_program(&program);

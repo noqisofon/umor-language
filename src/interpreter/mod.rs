@@ -35,23 +35,13 @@ enum WordDefinition {
 
 /// 変数の実体。`Rc<RefCell<..>>`により、親の変数を子（局所処理単語）が
 /// 共有・書き換えできる（エイリアシング）。`None`は未初期化を表す。
-type VarSlot = Rc<RefCell<Option<Value>>>;
-
-/// データスタックに積まれる要素。
-///
-/// 変数名の`WordCall`は、値を即座に読み取るのではなく`VarRef`として積む。
-/// これにより「いれる」が代入先の変数そのもの（未初期化でもよい）を
-/// 受け取れる一方、それ以外のワードが値として消費する際には自動的に
-/// 現在の値へ解決される（[`Interpreter::pop_value`]参照）。
-#[derive(Clone)]
-enum StackItem {
-    Value(Value),
-    VarRef { slot: VarSlot, name: String },
-}
+pub(crate) type VarSlot = Rc<RefCell<Option<Value>>>;
 
 /// Umorの評価器本体。
 pub struct Interpreter {
-    stack: Vec<StackItem>,
+    /// データスタック。変数名の`WordCall`は、値を即座に読み取るのではなく
+    /// `Value::VarRef`として積む（Phase 1では自動解決しない。[`Interpreter::pop_value`]参照）。
+    stack: Vec<Value>,
     dictionary: HashMap<String, WordDefinition>,
     /// 外側（祖先）から内側（現在実行中）へ向かう、変数フレームのスタック。
     /// フレーム`i`は、祖先チェーン上のある`Definition`が宣言した変数の集合。
@@ -119,24 +109,19 @@ impl Interpreter {
         RuntimeErrorReport {
             error,
             word_trace: self.call_trace.clone(),
-            stack_snapshot: self.stack.iter().map(describe_stack_item).collect(),
+            stack_snapshot: self.stack.iter().map(|v| v.to_string()).collect(),
         }
     }
 
-    /// データスタックの一番上を、値として（変数参照なら現在値へ解決して）取り出す。
+    /// データスタックの一番上を取り出す。`Value::VarRef`（変数参照）はそのまま
+    /// 返し、現在値へは解決しない（Phase 1では「読」ワードが明示的に解決を行う）。
     pub fn pop_value(&mut self) -> Result<Value, RuntimeError> {
-        match self.pop_raw()? {
-            StackItem::Value(v) => Ok(v),
-            StackItem::VarRef { slot, name } => slot
-                .borrow()
-                .clone()
-                .ok_or(RuntimeError::UninitializedVariable(name)),
-        }
+        self.stack.pop().ok_or(RuntimeError::StackUnderflow)
     }
 
     /// データスタックへ値を積む。
     pub fn push_value(&mut self, value: Value) {
-        self.stack.push(StackItem::Value(value));
+        self.stack.push(value);
     }
 
     /// データスタックに残っている要素数。
@@ -144,18 +129,14 @@ impl Interpreter {
         self.stack.len()
     }
 
-    fn pop_raw(&mut self) -> Result<StackItem, RuntimeError> {
-        self.stack.pop().ok_or(RuntimeError::StackUnderflow)
-    }
-
     /// データスタックの一番上を、代入先（変数参照）として取り出す。
     /// 変数参照でなければ`TypeMismatch`。
     fn pop_var_ref(&mut self) -> Result<VarSlot, RuntimeError> {
-        match self.pop_raw()? {
-            StackItem::VarRef { slot, .. } => Ok(slot),
-            StackItem::Value(v) => Err(RuntimeError::TypeMismatch {
+        match self.pop_value()? {
+            Value::VarRef(slot, _) => Ok(slot),
+            other => Err(RuntimeError::TypeMismatch {
                 expected: "変数".to_string(),
-                found: v.type_name().to_string(),
+                found: other.type_name().to_string(),
             }),
         }
     }
@@ -216,10 +197,7 @@ impl Interpreter {
         }
 
         if let Some(slot) = self.lookup_variable(name) {
-            self.stack.push(StackItem::VarRef {
-                slot,
-                name: name.to_string(),
-            });
+            self.push_value(Value::VarRef(slot, Rc::from(name)));
             return Ok(());
         }
 
@@ -276,16 +254,6 @@ impl Default for Interpreter {
     }
 }
 
-fn describe_stack_item(item: &StackItem) -> String {
-    match item {
-        StackItem::Value(v) => v.to_string(),
-        StackItem::VarRef { name, slot } => match &*slot.borrow() {
-            Some(v) => format!("{name}={v}"),
-            None => format!("{name}=<未初期化>"),
-        },
-    }
-}
-
 /// `「…」`文字列リテラルの脱糖衣形（パーサーが`WordCall`として出力したもの）
 /// から中身を取り出す。
 fn strip_string_literal(name: &str) -> Option<&str> {
@@ -332,6 +300,19 @@ fn pop_array(interp: &mut Interpreter) -> Result<Rc<RefCell<Vec<Value>>>, Runtim
     }
 }
 
+/// `value`が`Value::VarRef`（未解決の変数参照）であれば`TypeMismatch`にする。
+/// Phase 1では、変数参照を具体的な値として扱えるワードは「読」のみで、
+/// それ以外のワード（`表示`を除く）はこれを通して弾く。
+fn require_concrete(value: Value) -> Result<Value, RuntimeError> {
+    match value {
+        Value::VarRef(_, name) => Err(RuntimeError::TypeMismatch {
+            expected: "具体的な値".to_string(),
+            found: format!("変数参照「{name}」"),
+        }),
+        other => Ok(other),
+    }
+}
+
 /// 基本ワードセット、および助詞・添字連結詞など、脱糖衣後のASTを実行するために
 /// 実行時にも意味を持つ補助ワードを登録する。
 ///
@@ -340,22 +321,22 @@ fn pop_array(interp: &mut Interpreter) -> Result<Rc<RefCell<Vec<Value>>>, Runtim
 /// 登録しておく必要がある。
 fn register_builtins(interp: &mut Interpreter) {
     interp.register_native("複製", |interp| {
-        let top = interp.pop_raw()?;
-        interp.stack.push(top.clone());
-        interp.stack.push(top);
+        let top = interp.pop_value()?;
+        interp.push_value(top.clone());
+        interp.push_value(top);
         Ok(())
     });
 
     interp.register_native("取替", |interp| {
-        let b = interp.pop_raw()?;
-        let a = interp.pop_raw()?;
-        interp.stack.push(b);
-        interp.stack.push(a);
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(b);
+        interp.push_value(a);
         Ok(())
     });
 
     interp.register_native("捨", |interp| {
-        interp.pop_raw()?;
+        interp.pop_value()?;
         Ok(())
     });
 
@@ -391,8 +372,8 @@ fn register_builtins(interp: &mut Interpreter) {
     });
 
     interp.register_native("等しい?", |interp| {
-        let b = interp.pop_value()?;
-        let a = interp.pop_value()?;
+        let b = require_concrete(interp.pop_value()?)?;
+        let a = require_concrete(interp.pop_value()?)?;
         interp.push_value(Value::Bool(a == b));
         Ok(())
     });
@@ -425,10 +406,29 @@ fn register_builtins(interp: &mut Interpreter) {
         Ok(())
     });
 
-    interp.register_native("いれる", |interp| {
+    // 「入れる」の送り仮名除去後の形（「いれる」ではなく「入れる」が正しい語形）。
+    interp.register_native("入", |interp| {
         let slot = interp.pop_var_ref()?;
-        let value = interp.pop_value()?;
+        let value = require_concrete(interp.pop_value()?)?;
         *slot.borrow_mut() = Some(value);
+        Ok(())
+    });
+
+    // 変数参照（`Value::VarRef`）を、その時点の現在値へ明示的に解決する。
+    // Phase 1では他のワードは変数参照を自動解決しないため、値として使う前に
+    // このワードを挟む必要がある（例外は`表示`。文字列表現をそのまま出力する）。
+    interp.register_native("読", |interp| {
+        let value = interp.pop_value()?;
+        match value {
+            Value::VarRef(slot, name) => {
+                let resolved = slot
+                    .borrow()
+                    .clone()
+                    .ok_or_else(|| RuntimeError::UninitializedVariable(name.to_string()))?;
+                interp.push_value(resolved);
+            }
+            other => interp.push_value(other),
+        }
         Ok(())
     });
 
@@ -456,7 +456,7 @@ fn register_builtins(interp: &mut Interpreter) {
     });
 
     interp.register_native("追加", |interp| {
-        let value = interp.pop_value()?;
+        let value = require_concrete(interp.pop_value()?)?;
         let array = pop_array(interp)?;
         array.borrow_mut().push(value);
         interp.push_value(Value::Array(array));
