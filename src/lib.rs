@@ -10,7 +10,7 @@ mod runner;
 pub mod tokenizer;
 
 pub use error::UmorError;
-pub use interpreter::{Interpreter, RuntimeError, RuntimeErrorReport, Value};
+pub use interpreter::{ExecutionOutcome, Interpreter, RuntimeError, RuntimeErrorReport, Value};
 pub use parser::{
     check_scopes, parse, parse_top_level_item, Definition, Expr, ParseError, Program, ScopeError,
     TopLevelItem,

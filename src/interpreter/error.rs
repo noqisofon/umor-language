@@ -17,6 +17,15 @@ pub enum RuntimeError {
     IndexOutOfBounds { index: i64, length: usize },
     /// 未初期化の変数を読み取ろうとした。
     UninitializedVariable(String),
+    /// 実行の正常な打ち切りを表す制御シグナル（ADR-0001）。
+    ///
+    /// `終了`・`さよなら`のようなREPL脱出ワードが返す。通常のエラーとは異なり、
+    /// ユーザーへ提示すべき異常事態ではない。[`crate::interpreter::Interpreter::process_top_level_item`]が
+    /// この変種を捕捉し、[`crate::interpreter::ExecutionOutcome::Exit`]へ変換して
+    /// 呼び出し元（REPLループ・ファイル実行ループ）へ伝える。既存のネイティブワード
+    /// 実装（`Result<(), RuntimeError>`を返すもの）への影響なしに、`?`によって
+    /// 通常のエラーと同じ経路でここまで伝播してくる。
+    Exit,
 }
 
 impl fmt::Display for RuntimeError {
@@ -35,6 +44,7 @@ impl fmt::Display for RuntimeError {
             RuntimeError::UninitializedVariable(name) => {
                 write!(f, "変数「{name}」はまだ値が代入されていません")
             }
+            RuntimeError::Exit => write!(f, "実行を終了します"),
         }
     }
 }
