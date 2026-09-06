@@ -18,6 +18,14 @@ pub struct Definition {
     pub body: Vec<Expr>,
 }
 
+/// トップレベルの要素。ワード定義（辞書に登録するだけで実行しない）と、
+/// その場で即座に実行される式の列（`。`までの1単位）のいずれか。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TopLevelItem {
+    Definition(Definition),
+    Expr(Vec<Expr>),
+}
+
 /// 本体を構成する式。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
