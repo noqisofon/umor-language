@@ -39,4 +39,8 @@ pub enum Expr {
         then_branch: Vec<Expr>,
         else_branch: Option<Vec<Expr>>,
     },
+    /// `再帰`構文キーワード（ADR-0009）。辞書引きを経由しない、現在
+    /// コンパイル中の定義（局所処理単語の内部であれば、その局所処理単語
+    /// 自身）への自己参照。
+    SelfRecurse,
 }

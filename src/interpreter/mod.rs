@@ -51,17 +51,42 @@ enum WordDefinition {
 /// 共有・書き換えできる（エイリアシング）。`None`は未初期化を表す。
 pub(crate) type VarSlot = Rc<RefCell<Option<Value>>>;
 
+/// 実行中のワード呼び出し1回分のコンテキスト（ADR-0008・ADR-0009向け）。
+///
+/// `Interpreter::call`が呼ばれるたびに1つ積まれ、戻るときに外される。
+#[derive(Clone)]
+struct ActiveCall {
+    /// このフレームで実行中のワード名（`再帰`の呼び出し先を組み立てる際に使う）。
+    name: Rc<str>,
+    /// このフレームで実行中の定義本体。`再帰`はこれをそのまま再度呼び出す。
+    def: Rc<Definition>,
+    /// このフレームが属するトップレベル定義ツリーの局所処理単語テーブル。
+    locals: Option<Rc<HashMap<String, Rc<Definition>>>>,
+    /// ADR-0008: このフレームが辞書の世代`N`のエントリであれば`Some((name, N))`。
+    /// 局所処理単語の呼び出し（辞書引きを経由しない）では`None`。
+    /// 本体中で自分と同じ名前（`self_ref.0`）を呼んだ場合、辞書引きは
+    /// 世代`N`未満（＝このエントリが追加される前の辞書状態）に限定される。
+    self_ref: Option<(Rc<str>, usize)>,
+}
+
 /// Umorの評価器本体。
 pub struct Interpreter {
     /// データスタック。変数名の`WordCall`は、値を即座に読み取るのではなく
     /// `Value::VarRef`として積む（Phase 1では自動解決しない。[`Interpreter::pop_value`]参照）。
     stack: Vec<Value>,
-    dictionary: HashMap<String, WordDefinition>,
+    /// ADR-0008: 辞書は追記専用。同名ワードの再定義は末尾への追加（新しい世代）
+    /// として扱い、削除・上書きは行わない。名前解決は既定では最新の世代
+    /// （末尾）から行うが、自己言及的な参照（[`ActiveCall::self_ref`]参照）は
+    /// それより古い世代に限定される。
+    dictionary: HashMap<String, Vec<WordDefinition>>,
     /// 外側（祖先）から内側（現在実行中）へ向かう、変数フレームのスタック。
     /// フレーム`i`は、祖先チェーン上のある`Definition`が宣言した変数の集合。
     scope_chain: Vec<HashMap<String, VarSlot>>,
-    /// 現在実行中のトップレベル定義ツリーの局所処理単語テーブル。
-    current_locals: Option<Rc<HashMap<String, Rc<Definition>>>>,
+    /// 外側（祖先）から内側（現在実行中）へ向かう、実行中のワード呼び出しの
+    /// スタック。局所処理単語の名前引きテーブル（[`ActiveCall::locals`]）・
+    /// ADR-0008の世代境界（[`ActiveCall::self_ref`]）・ADR-0009の`再帰`が
+    /// 参照する「現在コンパイル中の定義」（[`ActiveCall::def`]）を兼ねる。
+    call_stack: Vec<ActiveCall>,
     /// エラー時のコンテキスト表示用に、実行中のワード名を外側から積んでいく。
     call_trace: Vec<String>,
 }
@@ -72,7 +97,7 @@ impl Interpreter {
             stack: Vec::new(),
             dictionary: HashMap::new(),
             scope_chain: Vec::new(),
-            current_locals: None,
+            call_stack: Vec::new(),
             call_trace: Vec::new(),
         };
         register_builtins(&mut interp);
@@ -80,14 +105,18 @@ impl Interpreter {
     }
 
     /// 基本ワード（またはテスト用のダミーワード）をネイティブ実装として登録する。
-    /// 既に同名のワードが登録されていれば上書きする。
+    /// ADR-0008により、既に同名のワードが登録されていても上書きはせず、
+    /// より新しい世代として追加する（名前解決は既定で最新の世代を選ぶため、
+    /// 見かけ上は上書きしたのと同じ効果になる）。
     pub fn register_native(
         &mut self,
         name: impl Into<String>,
         f: impl Fn(&mut Interpreter) -> Result<(), RuntimeError> + 'static,
     ) {
         self.dictionary
-            .insert(name.into(), WordDefinition::Native(Rc::new(f)));
+            .entry(name.into())
+            .or_default()
+            .push(WordDefinition::Native(Rc::new(f)));
     }
 
     /// `program`に含まれる各トップレベル定義を辞書に登録する（実行はしない）。
@@ -103,13 +132,13 @@ impl Interpreter {
             .iter()
             .map(|local| (local.name.clone(), Rc::new(local.clone())))
             .collect();
-        self.dictionary.insert(
-            def.name.clone(),
-            WordDefinition::UserDefined {
+        self.dictionary
+            .entry(def.name.clone())
+            .or_default()
+            .push(WordDefinition::UserDefined {
                 def: Rc::new(def.clone()),
                 locals: Rc::new(locals),
-            },
-        );
+            });
     }
 
     /// 指定した名前のワードを1つ実行する（テスト・動作確認用のエントリポイント）。
@@ -197,6 +226,17 @@ impl Interpreter {
                 self.push_value(Value::Number(*n));
                 Ok(())
             }
+            Expr::SelfRecurse => {
+                // ADR-0009: パーサーが、どの定義本体にも属さない文脈での
+                // `再帰`を構文エラーとして弾いているため、実行時にここへ
+                // 到達する時点で必ず`call_stack`は非空。
+                let frame = self
+                    .call_stack
+                    .last()
+                    .cloned()
+                    .expect("「再帰」は定義本体の外では実行されないはず（パーサーが保証する）");
+                self.call(&frame.name, frame.def, frame.locals, frame.self_ref)
+            }
             Expr::IfElse {
                 cond,
                 then_branch,
@@ -235,36 +275,62 @@ impl Interpreter {
             return Ok(());
         }
 
-        if let Some(local_def) = self
-            .current_locals
+        let current_locals = self
+            .call_stack
+            .last()
+            .and_then(|frame| frame.locals.clone());
+        if let Some(local_def) = current_locals
             .as_ref()
             .and_then(|locals| locals.get(name).cloned())
         {
-            let locals = self.current_locals.clone();
-            return self.call(name, local_def, locals);
+            return self.call(name, local_def, current_locals, None);
         }
 
-        match self.dictionary.get(name).cloned() {
+        // ADR-0008: 名前解決は既定では最新の世代（末尾）から行うが、現在
+        // 実行中のワード自身と同じ名前を呼んだ場合（自己言及的な再定義
+        // イディオム）は、このワードが辞書に追加される前の世代までに
+        // 限定する（＝自分自身の世代は候補から除外する）。
+        let self_ref = self
+            .call_stack
+            .last()
+            .and_then(|frame| frame.self_ref.clone());
+        let cutoff = match &self_ref {
+            Some((self_name, generation)) if self_name.as_ref() == name => *generation,
+            _ => self.dictionary.get(name).map(Vec::len).unwrap_or(0),
+        };
+        if cutoff == 0 {
+            return Err(RuntimeError::UndefinedWord(name.to_string()));
+        }
+        let generation = cutoff - 1;
+        match self
+            .dictionary
+            .get(name)
+            .and_then(|gens| gens.get(generation))
+            .cloned()
+        {
             Some(WordDefinition::Native(f)) => {
                 self.call_trace.push(name.to_string());
                 let result = f(self);
                 self.call_trace.pop();
                 result
             }
-            Some(WordDefinition::UserDefined { def, locals }) => self.call(name, def, Some(locals)),
+            Some(WordDefinition::UserDefined { def, locals }) => {
+                self.call(name, def, Some(locals), Some((Rc::from(name), generation)))
+            }
             None => Err(RuntimeError::UndefinedWord(name.to_string())),
         }
     }
 
-    /// `def`を、`local_dict`を局所処理単語テーブルとして実行する。
-    /// `def`自身の変数用フレームを積み、本体を評価してからフレームを外す。
+    /// `def`を、`locals`を局所処理単語テーブルとして実行する。`def`自身の
+    /// 変数用フレームを積み、本体を評価してからフレームを外す。`self_ref`は
+    /// ADR-0008の世代境界（[`ActiveCall::self_ref`]参照）。
     fn call(
         &mut self,
         name: &str,
         def: Rc<Definition>,
-        local_dict: Option<Rc<HashMap<String, Rc<Definition>>>>,
+        locals: Option<Rc<HashMap<String, Rc<Definition>>>>,
+        self_ref: Option<(Rc<str>, usize)>,
     ) -> Result<(), RuntimeError> {
-        let prev_locals = std::mem::replace(&mut self.current_locals, local_dict);
         let frame = def
             .variables
             .iter()
@@ -272,12 +338,18 @@ impl Interpreter {
             .collect();
         self.scope_chain.push(frame);
         self.call_trace.push(name.to_string());
+        self.call_stack.push(ActiveCall {
+            name: Rc::from(name),
+            def: def.clone(),
+            locals,
+            self_ref,
+        });
 
         let result = self.eval_exprs(&def.body);
 
+        self.call_stack.pop();
         self.call_trace.pop();
         self.scope_chain.pop();
-        self.current_locals = prev_locals;
         result
     }
 }
