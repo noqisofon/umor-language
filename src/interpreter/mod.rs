@@ -10,6 +10,20 @@ mod value;
 pub use error::{RuntimeError, RuntimeErrorReport};
 pub use value::Value;
 
+/// [`Interpreter::process_top_level_item`]の実行結果。
+///
+/// 通常のエラーとは別に、実行の正常な打ち切り（ADR-0001の`終了`・`さよなら`）を
+/// 表現するための型。`RuntimeError::Exit`が`process_top_level_item`の内部で
+/// この`Exit`へ変換される。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionOutcome {
+    /// 通常通り処理を継続する。
+    Continue,
+    /// 実行を打ち切り、呼び出し元（REPLループ・ファイル実行ループ）へ
+    /// 正常終了の意思を伝える。
+    Exit,
+}
+
 use crate::parser::{Definition, Expr, Program, TopLevelItem};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -106,13 +120,20 @@ impl Interpreter {
     /// [`TopLevelItem`]を1つ処理する。ワード定義なら辞書へ登録するだけ（実行しない）、
     /// トップレベル式の列なら即座に評価する。ファイル実行・REPL共通コア
     /// （[`crate::run_source`]）から、逐次パースしたトップレベル要素ごとに呼ばれる。
-    pub fn process_top_level_item(&mut self, item: &TopLevelItem) -> Result<(), RuntimeError> {
+    pub fn process_top_level_item(
+        &mut self,
+        item: &TopLevelItem,
+    ) -> Result<ExecutionOutcome, RuntimeError> {
         match item {
             TopLevelItem::Definition(def) => {
                 self.load_definition(def);
-                Ok(())
+                Ok(ExecutionOutcome::Continue)
             }
-            TopLevelItem::Expr(exprs) => self.eval_exprs(exprs),
+            TopLevelItem::Expr(exprs) => match self.eval_exprs(exprs) {
+                Ok(()) => Ok(ExecutionOutcome::Continue),
+                Err(RuntimeError::Exit) => Ok(ExecutionOutcome::Exit),
+                Err(e) => Err(e),
+            },
         }
     }
 
@@ -475,4 +496,10 @@ fn register_builtins(interp: &mut Interpreter) {
         interp.push_value(Value::Array(array));
         Ok(())
     });
+
+    // REPL・ファイル実行を打ち切るワード（ADR-0001）。専用コマンド層は持たず、
+    // 辞書引きより優先させない通常ワードとして提供する。再定義すればその
+    // 定義が実行され、このワード本来の終了動作は失われる（意図した挙動）。
+    interp.register_native("終了", |_interp| Err(RuntimeError::Exit));
+    interp.register_native("さよなら", |_interp| Err(RuntimeError::Exit));
 }

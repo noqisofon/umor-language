@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::io::{self, BufRead, Write};
 
-use umor::{run_source, Interpreter};
+use umor::{run_source, ExecutionOutcome, Interpreter};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -25,6 +25,8 @@ fn run_file(path: &str) {
     };
 
     let mut interp = Interpreter::new();
+    // `ExecutionOutcome::Exit`（`終了`・`さよなら`）でもエラーでも、
+    // ファイル実行としてはその時点で処理が終わる。異常なのはエラーの場合のみ。
     if let Err(e) = run_source(&mut interp, &src) {
         eprintln!("エラー: {e}");
         std::process::exit(1);
@@ -32,6 +34,10 @@ fn run_file(path: &str) {
 }
 
 /// 標準入力から1行ずつ読み込み、`run_source`と同じコアロジックで処理する。
+///
+/// `終了`・`さよなら`は辞書引きされる通常のワードであり（ADR-0001）、専用の
+/// コマンド層は持たない。辞書を経由しない脱出手段として、標準入力のEOF
+/// （Ctrl+D）でループが自然に終わる既存の挙動はそのまま維持する。
 fn run_repl() {
     let mut interp = Interpreter::new();
     let stdin = io::stdin();
@@ -43,17 +49,15 @@ fn run_repl() {
             Ok(l) => l,
             Err(_) => break,
         };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if line.trim().is_empty() {
             print!("umor> ");
             io::stdout().flush().ok();
             continue;
         }
-        if trimmed == "終了" || trimmed == "さよなら" {
-            break;
-        }
-        if let Err(e) = run_source(&mut interp, &line) {
-            eprintln!("エラー: {e}");
+        match run_source(&mut interp, &line) {
+            Ok(ExecutionOutcome::Continue) => {}
+            Ok(ExecutionOutcome::Exit) => break,
+            Err(e) => eprintln!("エラー: {e}"),
         }
         print!("umor> ");
         io::stdout().flush().ok();

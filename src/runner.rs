@@ -2,21 +2,30 @@
 //! その場で即座に実行する共通コア。ファイル実行CLI・REPLの両方から使われる。
 
 use crate::error::UmorError;
-use crate::interpreter::Interpreter;
+use crate::interpreter::{ExecutionOutcome, Interpreter};
 use crate::parser::parse_top_level_item;
 use crate::tokenizer::tokenize;
 
 /// `src`を先頭から読み、トップレベルの要素（ワード定義／式の列）を1つずつ
 /// パースしては即座に処理する。字句解析・構文解析・実行時のいずれかで
 /// エラーが起きた時点で処理を打ち切り、[`UmorError`]を返す。
-pub fn run_source(interp: &mut Interpreter, src: &str) -> Result<(), UmorError> {
+///
+/// 途中で`終了`・`さよなら`（ADR-0001）が実行され[`ExecutionOutcome::Exit`]が
+/// 返された場合は、それ以降のトップレベル要素を評価せずに`Ok(ExecutionOutcome::Exit)`を
+/// 返す。エラーではないので、呼び出し元（REPLループ・ファイル実行）はこれを
+/// 正常終了として扱ってよい。
+pub fn run_source(interp: &mut Interpreter, src: &str) -> Result<ExecutionOutcome, UmorError> {
     let tokens = tokenize(src)?;
     let mut pos = 0usize;
     while pos < tokens.len() {
         let item = parse_top_level_item(&tokens, &mut pos)?;
-        interp
+        match interp
             .process_top_level_item(&item)
-            .map_err(|e| UmorError::Runtime(interp.report(e)))?;
+            .map_err(|e| UmorError::Runtime(interp.report(e)))?
+        {
+            ExecutionOutcome::Continue => {}
+            ExecutionOutcome::Exit => return Ok(ExecutionOutcome::Exit),
+        }
     }
-    Ok(())
+    Ok(ExecutionOutcome::Continue)
 }
