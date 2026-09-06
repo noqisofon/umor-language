@@ -91,47 +91,11 @@ fn contains_digit(chars: &[char]) -> bool {
     chars.iter().any(|&c| is_digit_char(c))
 }
 
-/// 空白なしで語幹に直接続きうる構造キーワード（長い順）。
-///
-/// 「挨拶するとは」「Xは」のように、分かち書きの区切り（空白）を挟まずに
-/// キーワードが語幹へ直接くっつくことがあるため、送り仮名除去の前に
-/// これらのキーワードを末尾から分離する。
-const KEYWORD_SUFFIXES: &[&str] = &["とは", "は"];
-
-/// `raw` の末尾が構造キーワードで終わっており、かつキーワードの前に
-/// 語幹部分が残る場合、`(語幹, キーワード)` を返す。
-fn split_trailing_keyword(raw: &str) -> Option<(&str, &str)> {
-    // キーワードそのもの（例:「とは」）は、それ自身が「は」で終わっていても
-    // それ以上分割しない。
-    if KEYWORD_SUFFIXES.contains(&raw) {
-        return None;
-    }
-    for kw in KEYWORD_SUFFIXES {
-        if raw.len() > kw.len() && raw.ends_with(kw) {
-            return Some((&raw[..raw.len() - kw.len()], kw));
-        }
-    }
-    None
-}
-
 /// 生トークン（区切り文字を含まない1塊の文字列）を分類し、トークンとして積む。
-///
-/// 語幹に空白なしで直接続く構造キーワード（`とは`/`は`）がある場合、
-/// 送り仮名除去より先にそれを分離する（例: 「Xは」→ Word("x") + Word("は")）。
 ///
 /// 先頭が数値パターンで構成される場合、数値部分と残り部分（助数詞等）を
 /// 分割して2つのトークンにする（例: 「５６０円」→ NumberLiteral("５６０") + Word("円")）。
 fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
-    if let Some((stem, keyword)) = split_trailing_keyword(raw) {
-        classify_and_push(stem, line, tokens);
-        tokens.push(Token {
-            kind: TokenKind::Word(keyword.to_string()),
-            raw: keyword.to_string(),
-            line,
-        });
-        return;
-    }
-
     let chars: Vec<char> = raw.chars().collect();
     let num_len = number_prefix_len(&chars);
 
@@ -239,8 +203,6 @@ fn line_col_at(chars: &[char], idx: usize) -> (usize, usize) {
 ///   `OpenParen`/`CloseParen` トークンを生成する（中身は通常どおり字句解析する）。
 /// - 単語の先頭が数値パターンの場合、数値部分を `NumberLiteral` として切り出す。
 /// - `。` は常に単独の `Word("。")` トークンとして切り出す。
-/// - 語幹に空白なしで直接続く構造キーワード（`とは`/`は`）は、送り仮名除去より
-///   先に分離される（例: 「Xは」→ Word("x") + Word("は")）。
 pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
     let chars: Vec<char> = src.chars().collect();
     let n = chars.len();
@@ -620,15 +582,13 @@ mod tests {
     }
 
     #[test]
-    fn keyword_suffix_is_split_from_stem_with_no_space() {
+    fn keyword_suffix_with_no_space_is_absorbed_as_okurigana() {
+        // 構造キーワードの前には必ず空白が必要というルールにより、
+        // 空白なしの「挨拶するとは」は「とは」が送り仮名として吸収され、
+        // 単一の Word("挨拶") になるのが正しい挙動。
         let tokens = tokenize("挨拶するとは").unwrap();
-        assert_eq!(words(&tokens), vec!["挨拶", "とは"]);
-    }
-
-    #[test]
-    fn wa_particle_is_split_from_variable_name_with_no_space() {
-        let tokens = tokenize("Xは").unwrap();
-        assert_eq!(words(&tokens), vec!["x", "は"]);
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Word("挨拶".to_string()));
     }
 
     #[test]
@@ -636,6 +596,17 @@ mod tests {
         let tokens = tokenize("とは").unwrap();
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].kind, TokenKind::Word("とは".to_string()));
+    }
+
+    #[test]
+    fn wa_particle_with_leading_space_stays_a_separate_token() {
+        // 構造キーワードの前には空白が必要なので、「X は」のように空白を
+        // 挟んで書けば、送り仮名除去の対象にならず別トークンとして残る。
+        let tokens = tokenize("Xは 変数").unwrap();
+        assert_eq!(words(&tokens), vec!["x", "変数"]);
+
+        let tokens = tokenize("X は 変数").unwrap();
+        assert_eq!(words(&tokens), vec!["x", "は", "変数"]);
     }
 
     #[test]

@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn case2_local_word_with_honntai_towa() {
         let program = parse_src(
-            "親処理とは\n    子処理とは\n        なにかする\n    本体とは\n        子処理\nこと。",
+            "親処理 とは\n    子処理 とは\n        なにかする\n    本体 とは\n        子処理\nこと。",
         );
         assert_eq!(program.definitions.len(), 1);
         let parent = &program.definitions[0];
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn case3_if_else() {
         let program = parse_src(
-            "判定するとは\n    雨降り？ ならば\n        傘を差す\n    そうでなければ\n        何もしない\n    つぎに\nこと。",
+            "判定する とは\n    雨降り？ ならば\n        傘を差す\n    そうでなければ\n        何もしない\n    つぎに\nこと。",
         );
         assert_eq!(program.definitions.len(), 1);
         let def = &program.definitions[0];
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn case4_variable_declaration() {
-        let program = parse_src("カウンターとは\n    Xは 変数\n    0を　X に　いれる\nこと。");
+        let program = parse_src("カウンター とは\n    X は 変数\n    0を　X に　いれる\nこと。");
         let def = &program.definitions[0];
         assert_eq!(def.variables, vec!["x".to_string()]);
         assert_eq!(
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn case5_sibling_scope_violation_is_rejected_by_scope_check() {
         let program = parse_src(
-            "親処理とは\n    子処理１とは\n        Yは 変数\n    子処理２とは\n        Y に　1を　いれる\n    本体とは\n        子処理１\n        子処理２\nこと。",
+            "親処理 とは\n    子処理１ とは\n        Y は 変数\n    子処理２ とは\n        Y に　1を　いれる\n    本体 とは\n        子処理１\n        子処理２\nこと。",
         );
         let result = check_scopes(&program);
         assert!(result.is_err());
@@ -508,14 +508,14 @@ mod tests {
 
     #[test]
     fn no_locals_variable_is_visible_within_own_definition() {
-        let program = parse_src("カウンターとは\n    Xは 変数\n    0を　X に　いれる\nこと。");
+        let program = parse_src("カウンター とは\n    X は 変数\n    0を　X に　いれる\nこと。");
         assert_eq!(check_scopes(&program), Ok(()));
     }
 
     #[test]
     fn local_can_see_parent_variable() {
         let program = parse_src(
-            "親処理とは\n    Xは 変数\n    子処理とは\n        X に　1を　いれる\n    本体とは\n        子処理\nこと。",
+            "親処理 とは\n    X は 変数\n    子処理 とは\n        X に　1を　いれる\n    本体 とは\n        子処理\nこと。",
         );
         assert_eq!(check_scopes(&program), Ok(()));
     }

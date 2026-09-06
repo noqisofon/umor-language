@@ -32,7 +32,7 @@ fn case1_simple_word_definition() {
 #[test]
 fn case2_local_word_and_honntai_towa() {
     let program = parse_src(
-        "親処理とは\n    子処理とは\n        なにかする\n    本体とは\n        子処理\nこと。",
+        "親処理 とは\n    子処理 とは\n        なにかする\n    本体 とは\n        子処理\nこと。",
     );
     assert_eq!(program.definitions.len(), 1);
     let parent = &program.definitions[0];
@@ -53,7 +53,7 @@ fn case2_local_word_and_honntai_towa() {
 #[test]
 fn case3_if_else_branches() {
     let program = parse_src(
-        "判定するとは\n    雨降り？ ならば\n        傘を差す\n    そうでなければ\n        何もしない\n    つぎに\nこと。",
+        "判定する とは\n    雨降り？ ならば\n        傘を差す\n    そうでなければ\n        何もしない\n    つぎに\nこと。",
     );
     let def = &program.definitions[0];
     assert_eq!(
@@ -68,7 +68,7 @@ fn case3_if_else_branches() {
 
 #[test]
 fn case4_variable_declaration() {
-    let program = parse_src("カウンターとは\n    Xは 変数\n    0を　X に　いれる\nこと。");
+    let program = parse_src("カウンター とは\n    X は 変数\n    0を　X に　いれる\nこと。");
     let def = &program.definitions[0];
     assert_eq!(def.variables, vec!["x".to_string()]);
     assert_eq!(
@@ -86,7 +86,7 @@ fn case4_variable_declaration() {
 #[test]
 fn case5_sibling_local_scope_violation_is_rejected() {
     let program = parse_src(
-        "親処理とは\n    子処理１とは\n        Yは 変数\n    子処理２とは\n        Y に　1を　いれる\n    本体とは\n        子処理１\n        子処理２\nこと。",
+        "親処理 とは\n    子処理１ とは\n        Y は 変数\n    子処理２ とは\n        Y に　1を　いれる\n    本体 とは\n        子処理１\n        子処理２\nこと。",
     );
     let errors = check_scopes(&program).expect_err("兄弟スコープ違反が検出されるはず");
     assert!(errors.iter().any(|e| e.variable == "y"));
@@ -94,7 +94,7 @@ fn case5_sibling_local_scope_violation_is_rejected() {
 
 #[test]
 fn case6_subscript_access_desugars_to_no_and_bamme() {
-    let program = parse_src("案内するとは\n    売り上げ（1）を　表示する\nこと。");
+    let program = parse_src("案内する とは\n    売り上げ（1）を　表示する\nこと。");
     let def = &program.definitions[0];
     assert_eq!(
         def.body,
@@ -112,7 +112,7 @@ fn case6_subscript_access_desugars_to_no_and_bamme() {
 #[test]
 fn case6b_chained_subscript_access_desugars_repeatedly() {
     let program =
-        parse_src("案内するとは\n    ダンジョンマップ（X軸座標）（Y座標）を　表示する\nこと。");
+        parse_src("案内する とは\n    ダンジョンマップ（X軸座標）（Y座標）を　表示する\nこと。");
     let def = &program.definitions[0];
     assert_eq!(
         def.body,
