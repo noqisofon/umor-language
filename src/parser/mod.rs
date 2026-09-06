@@ -81,6 +81,20 @@ fn parse_top_level_expr_sequence(
             ));
         }
 
+        if is_word(tokens, *pos, "ここから") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, false)?;
+            exprs.push(Expr::InfiniteLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "回数指定") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, false)?;
+            exprs.push(Expr::CountedLoop { body });
+            continue;
+        }
+
         if is_word(tokens, *pos, "ならば") {
             *pos += 1;
             let cond = std::mem::take(&mut exprs);
@@ -325,6 +339,20 @@ fn parse_definition(
             body_started = true;
         }
 
+        if is_word(tokens, *pos, "ここから") {
+            *pos += 1;
+            let loop_body = parse_loop_body(tokens, pos, true)?;
+            body.push(Expr::InfiniteLoop { body: loop_body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "回数指定") {
+            *pos += 1;
+            let loop_body = parse_loop_body(tokens, pos, true)?;
+            body.push(Expr::CountedLoop { body: loop_body });
+            continue;
+        }
+
         if is_word(tokens, *pos, "ならば") {
             *pos += 1;
             let cond = std::mem::take(&mut body);
@@ -373,6 +401,20 @@ fn parse_branch(
                 tokens,
                 *pos,
             ));
+        }
+
+        if is_word(tokens, *pos, "ここから") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::InfiniteLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "回数指定") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::CountedLoop { body });
+            continue;
         }
 
         if is_word(tokens, *pos, "ならば") {
@@ -436,6 +478,62 @@ fn parse_atom_with_subscripts(
     Ok(())
 }
 
+fn parse_loop_body(
+    tokens: &[Token],
+    pos: &mut usize,
+    in_definition: bool,
+) -> Result<Vec<Expr>, ParseError> {
+    let mut exprs = Vec::new();
+    loop {
+        if is_word(tokens, *pos, "繰返") {
+            *pos += 1;
+            return Ok(exprs);
+        }
+        if *pos >= tokens.len() {
+            return Err(ParseError::new(
+                "ループが「繰り返し」「繰り返す」で閉じられないまま入力が終了しました",
+                tokens,
+                *pos,
+            ));
+        }
+
+        if is_word(tokens, *pos, "ここから") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::InfiniteLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "回数指定") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::CountedLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "ならば") {
+            *pos += 1;
+            let cond = std::mem::take(&mut exprs);
+            let then_branch = parse_branch(tokens, pos, in_definition)?;
+            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
+                *pos += 1;
+                Some(parse_branch(tokens, pos, in_definition)?)
+            } else {
+                None
+            };
+            expect_word(tokens, pos, "つぎに")?;
+            exprs.push(Expr::IfElse {
+                cond,
+                then_branch,
+                else_branch,
+            });
+            continue;
+        }
+
+        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
+    }
+}
+
 fn parse_single_atom(
     tokens: &[Token],
     pos: &mut usize,
@@ -463,6 +561,14 @@ fn parse_single_atom(
                 ));
             }
             Expr::SelfRecurse
+        }
+        TokenKind::Word(w) if w == "打切" => Expr::Break,
+        TokenKind::Word(w) if w == "繰返" => {
+            return Err(ParseError::new(
+                "「繰り返し」「繰り返す」に対応するループの開始（「ここから」または「回数指定し」）がありません",
+                tokens,
+                *pos,
+            ));
         }
         TokenKind::Word(w) => Expr::WordCall(w.clone()),
         TokenKind::NumberLiteral(s) => Expr::NumberLiteral(parse_number_literal(s, tokens, *pos)?),
@@ -539,8 +645,8 @@ mod tests {
                 then_branch,
                 else_branch,
             } => {
-                assert_eq!(cond, &vec![Expr::WordCall("雨降り?".to_string())]);
-                assert_eq!(then_branch, &vec![Expr::WordCall("傘を差".to_string())]);
+                assert_eq!(cond, &vec![Expr::WordCall("雨降?".to_string())]);
+                assert_eq!(then_branch, &vec![Expr::WordCall("傘差".to_string())]);
                 assert_eq!(else_branch, &Some(vec![Expr::WordCall("何".to_string())]));
             }
             other => panic!("expected IfElse, got {other:?}"),
@@ -584,7 +690,7 @@ mod tests {
         assert_eq!(
             out,
             vec![
-                Expr::WordCall("売り上".to_string()),
+                Expr::WordCall("売上".to_string()),
                 Expr::WordCall("の".to_string()),
                 Expr::NumberLiteral(1),
                 Expr::WordCall("番目".to_string()),

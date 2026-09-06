@@ -87,6 +87,10 @@ pub struct Interpreter {
     /// ADR-0008の世代境界（[`ActiveCall::self_ref`]）・ADR-0009の`再帰`が
     /// 参照する「現在コンパイル中の定義」（[`ActiveCall::def`]）を兼ねる。
     call_stack: Vec<ActiveCall>,
+    /// ADR-0010: 回数指定ループ（CountedLoop）の現在の反復回数（0オリジン）の
+    /// スタック。ネストしたループでは内側が末尾に積まれ、暗黙変数「回数」の
+    /// 参照時に最内側のインデックスを返す。
+    counted_loop_stack: Vec<i64>,
     /// エラー時のコンテキスト表示用に、実行中のワード名を外側から積んでいく。
     call_trace: Vec<String>,
 }
@@ -98,6 +102,7 @@ impl Interpreter {
             dictionary: HashMap::new(),
             scope_chain: Vec::new(),
             call_stack: Vec::new(),
+            counted_loop_stack: Vec::new(),
             call_trace: Vec::new(),
         };
         register_builtins(&mut interp);
@@ -113,8 +118,10 @@ impl Interpreter {
         name: impl Into<String>,
         f: impl Fn(&mut Interpreter) -> Result<(), RuntimeError> + 'static,
     ) {
+        let name_str = name.into();
+        let normalized = crate::tokenizer::normalize_word(&name_str);
         self.dictionary
-            .entry(name.into())
+            .entry(normalized)
             .or_default()
             .push(WordDefinition::Native(Rc::new(f)));
     }
@@ -143,7 +150,7 @@ impl Interpreter {
 
     /// 指定した名前のワードを1つ実行する（テスト・動作確認用のエントリポイント）。
     pub fn run_word(&mut self, name: &str) -> Result<(), RuntimeError> {
-        self.dispatch(name)
+        self.dispatch(name).map_err(map_break_outside_loop)
     }
 
     /// [`TopLevelItem`]を1つ処理する。ワード定義なら辞書へ登録するだけ（実行しない）、
@@ -161,7 +168,7 @@ impl Interpreter {
             TopLevelItem::Expr(exprs) => match self.eval_exprs(exprs) {
                 Ok(()) => Ok(ExecutionOutcome::Continue),
                 Err(RuntimeError::Exit) => Ok(ExecutionOutcome::Exit),
-                Err(e) => Err(e),
+                Err(e) => Err(map_break_outside_loop(e)),
             },
         }
     }
@@ -255,6 +262,31 @@ impl Interpreter {
                     }),
                 }
             }
+            Expr::Break => Err(RuntimeError::Break),
+            Expr::InfiniteLoop { body } => {
+                loop {
+                    match self.eval_exprs(body) {
+                        Ok(()) => {}
+                        Err(RuntimeError::Break) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(())
+            }
+            Expr::CountedLoop { body } => {
+                let n = pop_number(self)?;
+                for i in 0..n {
+                    self.counted_loop_stack.push(i);
+                    let res = self.eval_exprs(body);
+                    self.counted_loop_stack.pop();
+                    match res {
+                        Ok(()) => {}
+                        Err(RuntimeError::Break) => break,
+                        Err(e) => return Err(e),
+                    }
+                }
+                Ok(())
+            }
         }
     }
 
@@ -268,6 +300,13 @@ impl Interpreter {
         if let Some(content) = strip_char_literal(name) {
             self.push_value(Value::String(Rc::from(content)));
             return Ok(());
+        }
+
+        if name == "回数" {
+            if let Some(&i) = self.counted_loop_stack.last() {
+                self.push_value(Value::Number(i));
+                return Ok(());
+            }
         }
 
         if let Some(slot) = self.lookup_variable(name) {
@@ -376,6 +415,14 @@ fn strip_char_literal(name: &str) -> Option<&str> {
     }
 }
 
+fn map_break_outside_loop(err: RuntimeError) -> RuntimeError {
+    if err == RuntimeError::Break {
+        RuntimeError::BreakOutsideLoop
+    } else {
+        err
+    }
+}
+
 fn pop_number(interp: &mut Interpreter) -> Result<i64, RuntimeError> {
     match interp.pop_value()? {
         Value::Number(n) => Ok(n),
@@ -426,6 +473,23 @@ fn require_concrete(value: Value) -> Result<Value, RuntimeError> {
 /// 残しているため、評価器側で無害な（スタックに影響しない）ワードとして
 /// 登録しておく必要がある。
 fn register_builtins(interp: &mut Interpreter) {
+    interp.register_native("越え", |interp| {
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(a.clone());
+        interp.push_value(b);
+        interp.push_value(a);
+        Ok(())
+    });
+
+    interp.register_native("交換", |interp| {
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(b);
+        interp.push_value(a);
+        Ok(())
+    });
+
     interp.register_native("複製", |interp| {
         let top = interp.pop_value()?;
         interp.push_value(top.clone());
@@ -481,6 +545,20 @@ fn register_builtins(interp: &mut Interpreter) {
         let b = require_concrete(interp.pop_value()?)?;
         let a = require_concrete(interp.pop_value()?)?;
         interp.push_value(Value::Bool(a == b));
+        Ok(())
+    });
+
+    interp.register_native("大?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a > b));
+        Ok(())
+    });
+
+    interp.register_native("小?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a < b));
         Ok(())
     });
 

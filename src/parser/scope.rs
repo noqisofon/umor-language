@@ -93,6 +93,21 @@ fn check_expr(
         }
         Expr::NumberLiteral(_) => {}
         Expr::SelfRecurse => {}
+        Expr::Break => {}
+        Expr::InfiniteLoop { body } => {
+            for e in body {
+                check_expr(e, def, declared_in_tree, visible, errors);
+            }
+        }
+        Expr::CountedLoop { body } => {
+            let mut inner_visible = visible.to_vec();
+            if !inner_visible.iter().any(|v| v == "回数") {
+                inner_visible.push("回数".to_string());
+            }
+            for e in body {
+                check_expr(e, def, declared_in_tree, &inner_visible, errors);
+            }
+        }
         Expr::IfElse {
             cond,
             then_branch,

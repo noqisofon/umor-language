@@ -17,6 +17,10 @@ pub enum RuntimeError {
     IndexOutOfBounds { index: i64, length: usize },
     /// 未初期化の変数を読み取ろうとした。
     UninitializedVariable(String),
+    /// ループ外での「打ち切り」実行エラー（ADR-0010）。
+    BreakOutsideLoop,
+    /// 内部制御用（「打ち切り」シグナルの伝播）。
+    Break,
     /// 実行の正常な打ち切りを表す制御シグナル（ADR-0001）。
     ///
     /// `終了`・`さよなら`のようなREPL脱出ワードが返す。通常のエラーとは異なり、
@@ -43,6 +47,9 @@ impl fmt::Display for RuntimeError {
             }
             RuntimeError::UninitializedVariable(name) => {
                 write!(f, "変数「{name}」はまだ値が代入されていません")
+            }
+            RuntimeError::BreakOutsideLoop | RuntimeError::Break => {
+                write!(f, "「打ち切り」はループ内でのみ使用できます")
             }
             RuntimeError::Exit => write!(f, "実行を終了します"),
         }

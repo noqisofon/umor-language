@@ -1,9 +1,13 @@
 //! 送り仮名の正規化ロジック。
 //!
 //! Umorの字句解析における中核ルール:
-//! 正規化済みトークンの末尾から、ひらがな文字が連続する限りこれを削る。
+//! 漢字部分を語幹として抽出し、活用による変化部分（送り仮名）をすべて捨てる。
+//! 語尾パターン（「反応する」→「反応」）だけでなく、漢字の間にひらがなが
+//! 挟まる語中パターン（「繰り返し」「繰り返す」→「繰返」）も含む。
+//!
 //! ただしトークンが全てひらがな（＋長音記号「ー」）で構成されている場合は
-//! 一切削らない。全部消えてしまう場合も削らない。
+//! 一切削らない（例: 「ならば」「つぎに」「ここから」）。
+//! 先頭のひらがなは削らない（例: 「ご案内する」→「ご案内」）。
 
 /// 文字がひらがなかどうかを判定する。
 ///
@@ -14,15 +18,14 @@ pub fn is_hiragana(c: char) -> bool {
     (0x3041..=0x3096).contains(&u) || (0x309D..=0x309F).contains(&u)
 }
 
-/// トークン末尾の送り仮名（ひらがな連続）を除去する。
+/// トークンの送り仮名を除去して語幹を抽出する。
 ///
-/// トークンが全てひらがな（または長音記号「ー」との組み合わせ）で
-/// 構成されている場合は、削らずそのまま返す
-/// （例: 「ならば」「つぎに」は保持される）。
+/// 全ひらがな（または長音記号「ー」との組み合わせ）トークンは正規化対象外として
+/// そのまま返す。
 ///
-/// それ以外の場合、末尾からひらがなが続く限り削る
-/// （例: 「反応する」→「反応」、「表示し」→「表示」）。
-/// 先頭のひらがなは削らない（例: 「ご案内する」→「ご案内」）。
+/// それ以外の場合、最初の非ひらがな（・非長音記号）文字より手前のひらがなは保持し
+/// （例: 「ご案内する」→「ご案内」）、最初の非ひらがな文字以降はすべてのひらがなを
+/// 削除する（例: 「繰り返し」「繰り返す」→「繰返」、「打ち切り」→「打切」）。
 pub fn normalize_okurigana(token: &str) -> String {
     let chars: Vec<char> = token.chars().collect();
 
@@ -30,16 +33,29 @@ pub fn normalize_okurigana(token: &str) -> String {
         return token.to_string();
     }
 
-    let mut end = chars.len();
-    while end > 0 && is_hiragana(chars[end - 1]) {
-        end -= 1;
+    let first_non_hiragana_idx = match chars
+        .iter()
+        .position(|&c| !is_hiragana(c) && c != 'ー')
+    {
+        Some(idx) => idx,
+        None => return token.to_string(),
+    };
+
+    let mut result = String::new();
+    for &c in &chars[..first_non_hiragana_idx] {
+        result.push(c);
+    }
+    for &c in &chars[first_non_hiragana_idx..] {
+        if !is_hiragana(c) {
+            result.push(c);
+        }
     }
 
-    if end == 0 {
-        return token.to_string();
+    if result.is_empty() {
+        token.to_string()
+    } else {
+        result
     }
-
-    chars[..end].iter().collect()
 }
 
 #[cfg(test)]
@@ -56,10 +72,20 @@ mod tests {
     }
 
     #[test]
+    fn strips_infix_and_suffix_hiragana_for_compound_words() {
+        assert_eq!(normalize_okurigana("繰り返し"), "繰返");
+        assert_eq!(normalize_okurigana("繰り返す"), "繰返");
+        assert_eq!(normalize_okurigana("打ち切り"), "打切");
+        assert_eq!(normalize_okurigana("打ち切る"), "打切");
+        assert_eq!(normalize_okurigana("回数指定し"), "回数指定");
+    }
+
+    #[test]
     fn keeps_all_hiragana_tokens_untouched() {
         assert_eq!(normalize_okurigana("ならば"), "ならば");
         assert_eq!(normalize_okurigana("つぎに"), "つぎに");
         assert_eq!(normalize_okurigana("さもなければ"), "さもなければ");
+        assert_eq!(normalize_okurigana("ここから"), "ここから");
     }
 
     #[test]

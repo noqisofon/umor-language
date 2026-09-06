@@ -43,4 +43,14 @@ pub enum Expr {
     /// コンパイル中の定義（局所処理単語の内部であれば、その局所処理単語
     /// 自身）への自己参照。
     SelfRecurse,
+    /// (A) 無限ループ `ここから ... 繰り返し`（ADR-0010）。
+    InfiniteLoop {
+        body: Vec<Expr>,
+    },
+    /// (B) 回数指定ループ `〈回数〉 回数指定し ... 繰り返す`（ADR-0010）。
+    CountedLoop {
+        body: Vec<Expr>,
+    },
+    /// ループ離脱 `打ち切り`（ADR-0010）。
+    Break,
 }
