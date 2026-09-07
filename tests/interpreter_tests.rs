@@ -189,6 +189,63 @@ fn case7_undefined_word_is_a_runtime_error() {
     assert_eq!(err, RuntimeError::UndefinedWord(called_name));
 }
 
+#[test]
+fn adr0017_rotation_word_rotates_top_three_stack_items() {
+    // 回転（Forthの`rot`相当）: ( a b c -- b c a )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.push_value(Value::Number(3));
+    interp.run_word("回転").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 3);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(3));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+}
+
+#[test]
+fn adr0017_remainder_word_computes_modulo() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(7));
+    interp.push_value(Value::Number(3));
+    interp.run_word("余").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 1);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+}
+
+#[test]
+fn adr0017_rotation_and_remainder_words_normalize_through_okurigana_stripping() {
+    // 「回転する」のような活用形でも、送り仮名除去により
+    // 辞書登録済みの語幹（「回転」「余」）へ正規化されて呼び出せる。
+    let program =
+        build("テスト とは\n    1 2 3 回転する\n    捨てる 捨てる\n    10 3 余り\nこと。");
+    let mut interp = Interpreter::new();
+    interp.load_program(&program);
+
+    interp.run_word("テスト").expect("実行に失敗した");
+
+    // 「1 2 3 回転する」で ( 1 2 3 -- 2 3 1 )、続く「捨てる 捨てる」で
+    // 上2つ（1, 3）を捨て、残るのは最初にrotされて底へ回った「2」のみ。
+    // 続けて「10 3 余り」で 10 % 3 = 1 が積まれる。
+    assert_eq!(interp.stack_len(), 2);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+}
+
+#[test]
+fn adr0017_remainder_by_zero_is_a_runtime_error() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(7));
+    interp.push_value(Value::Number(0));
+
+    let err = interp
+        .run_word("余")
+        .expect_err("0での剰余はエラーになるはず");
+    assert_eq!(err, RuntimeError::DivisionByZero);
+}
+
 /// テストダブル: `表示`を、標準出力の代わりに`log`へ蓄積するよう差し替える。
 fn install_logging_display(interp: &mut Interpreter, log: Rc<RefCell<Vec<String>>>) {
     interp.register_native("表示", move |interp| {

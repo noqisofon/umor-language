@@ -484,6 +484,16 @@ fn register_builtins(interp: &mut Interpreter) {
         Ok(())
     });
 
+    interp.register_native("回転", |interp| {
+        let c = interp.pop_value()?;
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(b);
+        interp.push_value(c);
+        interp.push_value(a);
+        Ok(())
+    });
+
     interp.register_native("複製", |interp| {
         let top = interp.pop_value()?;
         interp.push_value(top.clone());
@@ -532,6 +542,16 @@ fn register_builtins(interp: &mut Interpreter) {
             return Err(RuntimeError::DivisionByZero);
         }
         interp.push_value(Value::Number(a / b));
+        Ok(())
+    });
+
+    interp.register_native("余", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        if b == 0 {
+            return Err(RuntimeError::DivisionByZero);
+        }
+        interp.push_value(Value::Number(a % b));
         Ok(())
     });
 
