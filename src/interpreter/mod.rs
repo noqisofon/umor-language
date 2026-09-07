@@ -294,7 +294,7 @@ impl Interpreter {
         }
     }
 
-    /// `WordCall(name)`の実行本体。文字列/文字リテラルの脱糖衣、変数の読み取り、
+    /// `WordCall(name)`の実行本体。文字リテラルの脱糖衣、変数の読み取り、
     /// 局所処理単語・ユーザー定義ワード・基本ワードの呼び出しを順に試す。
     fn dispatch(&mut self, name: &str) -> Result<(), RuntimeError> {
         if let Some(content) = strip_char_literal(name) {
