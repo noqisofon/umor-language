@@ -572,7 +572,7 @@ fn parse_single_atom(
         }
         TokenKind::Word(w) => Expr::WordCall(w.clone()),
         TokenKind::NumberLiteral(s) => Expr::NumberLiteral(parse_number_literal(s, tokens, *pos)?),
-        TokenKind::StringLiteral(s) => Expr::WordCall(format!("「{s}」")),
+        TokenKind::StringLiteral(s) => Expr::StringLiteral(s.clone()),
         TokenKind::CharLiteral(c) => Expr::WordCall(format!("'{c}'")),
         TokenKind::OpenParen | TokenKind::CloseParen => {
             return Err(ParseError::new(
@@ -606,7 +606,7 @@ mod tests {
         assert_eq!(
             def.body,
             vec![
-                Expr::WordCall("「こんにちは」".to_string()),
+                Expr::StringLiteral("こんにちは".to_string()),
                 Expr::WordCall("を".to_string()),
                 Expr::WordCall("表示".to_string()),
             ]

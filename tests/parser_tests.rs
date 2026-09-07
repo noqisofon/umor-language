@@ -22,7 +22,7 @@ fn case1_simple_word_definition() {
     assert_eq!(
         def.body,
         vec![
-            Expr::WordCall("「こんにちは」".to_string()),
+            Expr::StringLiteral("こんにちは".to_string()),
             Expr::WordCall("を".to_string()),
             Expr::WordCall("表示".to_string()),
         ]

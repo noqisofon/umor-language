@@ -33,6 +33,8 @@ pub enum Expr {
     WordCall(String),
     /// 助数詞正規化済みの数値トークン。
     NumberLiteral(i64),
+    /// 文字列リテラル（鍵括弧「...」や二重引用符 "..."）。
+    StringLiteral(String),
     /// `＜条件＞ ならば ＜then節＞ [そうでなければ ＜else節＞] つぎに`
     IfElse {
         cond: Vec<Expr>,
