@@ -137,7 +137,7 @@ fn parse_top_level_item_distinguishes_definition_from_expr() {
             assert_eq!(
                 exprs,
                 vec![
-                    Expr::WordCall("「こんにちは」".to_string()),
+                    Expr::StringLiteral("こんにちは".to_string()),
                     Expr::WordCall("を".to_string()),
                     Expr::WordCall("表示".to_string()),
                 ]

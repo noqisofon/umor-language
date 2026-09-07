@@ -233,6 +233,10 @@ impl Interpreter {
                 self.push_value(Value::Number(*n));
                 Ok(())
             }
+            Expr::StringLiteral(s) => {
+                self.push_value(Value::String(Rc::from(s.as_str())));
+                Ok(())
+            }
             Expr::SelfRecurse => {
                 // ADR-0009: パーサーが、どの定義本体にも属さない文脈での
                 // `再帰`を構文エラーとして弾いているため、実行時にここへ
@@ -290,13 +294,9 @@ impl Interpreter {
         }
     }
 
-    /// `WordCall(name)`の実行本体。文字列/文字リテラルの脱糖衣、変数の読み取り、
+    /// `WordCall(name)`の実行本体。文字リテラルの脱糖衣、変数の読み取り、
     /// 局所処理単語・ユーザー定義ワード・基本ワードの呼び出しを順に試す。
     fn dispatch(&mut self, name: &str) -> Result<(), RuntimeError> {
-        if let Some(content) = strip_string_literal(name) {
-            self.push_value(Value::String(Rc::from(content)));
-            return Ok(());
-        }
         if let Some(content) = strip_char_literal(name) {
             self.push_value(Value::String(Rc::from(content)));
             return Ok(());
@@ -397,12 +397,6 @@ impl Default for Interpreter {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// `「…」`文字列リテラルの脱糖衣形（パーサーが`WordCall`として出力したもの）
-/// から中身を取り出す。
-fn strip_string_literal(name: &str) -> Option<&str> {
-    name.strip_prefix('「').and_then(|s| s.strip_suffix('」'))
 }
 
 /// `'X'`文字リテラルの脱糖衣形から中身の1文字を取り出す。

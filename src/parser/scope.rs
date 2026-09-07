@@ -92,6 +92,7 @@ fn check_expr(
             }
         }
         Expr::NumberLiteral(_) => {}
+        Expr::StringLiteral(_) => {}
         Expr::SelfRecurse => {}
         Expr::Break => {}
         Expr::InfiniteLoop { body } => {
