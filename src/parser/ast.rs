@@ -31,6 +31,8 @@ pub enum TopLevelItem {
 pub enum Expr {
     /// 通常のワード呼び出し。変数の読み取り・代入もここに含む。
     WordCall(String),
+    /// トップレベルの変数宣言（`Xは 変数`）。ADR-0026。
+    VariableDecl(String),
     /// 助数詞正規化済みの数値トークン。
     NumberLiteral(i64),
     /// 文字列リテラル（鍵括弧「...」や二重引用符 "..."）。

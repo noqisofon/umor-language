@@ -91,6 +91,10 @@ fn check_expr(
                 });
             }
         }
+        // ADR-0026: トップレベルの変数宣言。定義本体の中には現れない
+        // （パーサーはトップレベルの1要素としてのみ生成する）ため、
+        // スコープ検証の対象にはならない。
+        Expr::VariableDecl(_) => {}
         Expr::NumberLiteral(_) => {}
         Expr::StringLiteral(_) => {}
         Expr::SelfRecurse => {}
