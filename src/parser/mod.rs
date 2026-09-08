@@ -43,6 +43,11 @@ pub fn parse(tokens: &[Token]) -> Result<Program, ParseError> {
 /// 先頭が`〈単語〉 とは`/`〈単語〉 は`の形であればワード定義として、
 /// そうでなければ`。`までの式の列として解析する。
 pub fn parse_top_level_item(tokens: &[Token], pos: &mut usize) -> Result<TopLevelItem, ParseError> {
+    if let Some(varname) = try_variable_decl(tokens, pos) {
+        // 「Xは 変数」の直後は「。」で閉じる想定（トップレベルの1要素として完結する）。
+        expect_word(tokens, pos, "。")?;
+        return Ok(TopLevelItem::Expr(vec![Expr::VariableDecl(varname)]));
+    }
     if peek_word_then_keyword(tokens, *pos).is_some() {
         let def = parse_definition(tokens, pos, false)?;
         return Ok(TopLevelItem::Definition(def));

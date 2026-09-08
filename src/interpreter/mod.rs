@@ -100,7 +100,7 @@ impl Interpreter {
         let mut interp = Interpreter {
             stack: Vec::new(),
             dictionary: HashMap::new(),
-            scope_chain: Vec::new(),
+            scope_chain: vec![HashMap::new()], // ADR-0026: トップレベル用の土台フレーム
             call_stack: Vec::new(),
             counted_loop_stack: Vec::new(),
             call_trace: Vec::new(),
@@ -229,6 +229,13 @@ impl Interpreter {
     fn eval_expr(&mut self, expr: &Expr) -> Result<(), RuntimeError> {
         match expr {
             Expr::WordCall(name) => self.dispatch(name),
+            Expr::VariableDecl(name) => {
+                // ADR-0026: 土台フレーム（scope_chainの先頭）に新しい空スロットを
+                // 追加する。同名の再宣言は既存スロットを新しいものに置き換える
+                // （単純な上書き。辞書のような世代管理はしない）。
+                self.scope_chain[0].insert(name.clone(), Rc::new(RefCell::new(None)));
+                Ok(())
+            }
             Expr::NumberLiteral(n) => {
                 self.push_value(Value::Number(*n));
                 Ok(())

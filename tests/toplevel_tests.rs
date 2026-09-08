@@ -154,3 +154,50 @@ fn value_display_round_trips_through_run_source() {
     run_source(&mut interp, "1　2　加。").expect("実行に失敗した");
     assert_eq!(interp.pop_value().unwrap(), Value::Number(3));
 }
+
+// ADR-0026: トップレベルの`Xは 変数`宣言をグローバル変数として機能させる。
+
+#[test]
+fn adr0026_parse_top_level_item_recognizes_variable_decl() {
+    let tokens = tokenize("合言葉 は 変数。").unwrap();
+    let mut pos = 0usize;
+    match parse_top_level_item(&tokens, &mut pos).unwrap() {
+        TopLevelItem::Expr(exprs) => {
+            assert_eq!(exprs, vec![Expr::VariableDecl("合言葉".to_string())]);
+        }
+        other => panic!("expected Expr, got {other:?}"),
+    }
+    assert_eq!(pos, tokens.len());
+}
+
+#[test]
+fn adr0026_top_level_variable_is_usable_from_top_level_exprs() {
+    let mut interp = Interpreter::new();
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+    install_logging_display(&mut interp, log.clone());
+
+    let src = "合言葉 は 変数。\n\n「のばら」を　合言葉に　入れる。\n\n合言葉を　読んで　表示する。";
+    run_source(&mut interp, src).expect("実行に失敗した");
+
+    assert_eq!(*log.borrow(), vec!["のばら".to_string()]);
+}
+
+#[test]
+fn adr0026_top_level_variable_is_visible_from_word_definitions() {
+    let mut interp = Interpreter::new();
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+    install_logging_display(&mut interp, log.clone());
+
+    let src = "合言葉 は 変数。\n\n「のばら」を　合言葉に　入れる。\n\n挨拶 とは\n    合言葉を　読んで　表示する\nこと。\n\n挨拶。";
+    run_source(&mut interp, src).expect("実行に失敗した");
+
+    assert_eq!(*log.borrow(), vec!["のばら".to_string()]);
+}
+
+#[test]
+fn adr0026_redeclaring_a_top_level_variable_resets_it_to_uninitialized() {
+    let mut interp = Interpreter::new();
+    let src = "X は 変数。\n\n1を　Xに　入れる。\n\nX は 変数。\n\nXを　読む。";
+    let err = run_source(&mut interp, src).unwrap_err();
+    assert!(err.to_string().contains("まだ値が代入されていません"));
+}
