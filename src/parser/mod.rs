@@ -565,7 +565,7 @@ fn parse_single_atom(
         TokenKind::Word(w) if w == "打切" => Expr::Break,
         TokenKind::Word(w) if w == "繰返" => {
             return Err(ParseError::new(
-                "「繰り返し」「繰り返す」に対応するループの開始（「ここから」または「回数指定し」）がありません",
+                "「繰返」に対応するループの開始（「ここから」または「回数指定」）がありません",
                 tokens,
                 *pos,
             ));
