@@ -5,9 +5,11 @@
 //! 発展は将来の課題とし、今回のスコープには含めない。
 
 mod error;
+mod output;
 mod value;
 
 pub use error::{RuntimeError, RuntimeErrorReport};
+pub use output::{BufferSink, OutputSink, StdoutSink};
 pub use value::Value;
 
 /// [`Interpreter::process_top_level_item`]の実行結果。
@@ -93,10 +95,18 @@ pub struct Interpreter {
     counted_loop_stack: Vec<i64>,
     /// エラー時のコンテキスト表示用に、実行中のワード名を外側から積んでいく。
     call_trace: Vec<String>,
+    /// ADR-0028: `表示`ワード等の出力系ワードが書き込む先。CLIでは標準出力、
+    /// 将来のWASM化ではバッファに差し替えられるよう抽象化してある。
+    output: Box<dyn OutputSink>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        Self::with_output(Box::new(StdoutSink))
+    }
+
+    /// 出力先を明示的に指定してインタプリタを構築する（ADR-0028）。
+    pub fn with_output(output: Box<dyn OutputSink>) -> Self {
         let mut interp = Interpreter {
             stack: Vec::new(),
             dictionary: HashMap::new(),
@@ -104,9 +114,16 @@ impl Interpreter {
             call_stack: Vec::new(),
             counted_loop_stack: Vec::new(),
             call_trace: Vec::new(),
+            output,
         };
         register_builtins(&mut interp);
         interp
+    }
+
+    /// 出力先への可変参照を返す。`BufferSink`使用時にテストや将来のWASM側から
+    /// 出力内容を取り出す際の足がかりとして用意してある（ADR-0028の宿題）。
+    pub fn output_mut(&mut self) -> &mut dyn OutputSink {
+        self.output.as_mut()
     }
 
     /// 基本ワード（またはテスト用のダミーワード）をネイティブ実装として登録する。
@@ -639,7 +656,8 @@ fn register_builtins(interp: &mut Interpreter) {
 
     interp.register_native("表示", |interp| {
         let value = interp.pop_value()?;
-        println!("{value}");
+        let s = format!("{value}");
+        interp.output.write_line(&s);
         Ok(())
     });
 
