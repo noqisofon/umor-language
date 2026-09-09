@@ -8,6 +8,8 @@ pub mod interpreter;
 pub mod parser;
 mod runner;
 pub mod tokenizer;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
 
 pub use error::UmorError;
 pub use interpreter::{
