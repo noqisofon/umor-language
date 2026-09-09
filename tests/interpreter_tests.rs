@@ -254,3 +254,19 @@ fn install_logging_display(interp: &mut Interpreter, log: Rc<RefCell<Vec<String>
         Ok(())
     });
 }
+
+#[test]
+fn adr0028_buffer_sink_accumulates_display_output() {
+    // ADR-0028: `Interpreter::with_output`に`BufferSink`を注入すると、
+    // `表示`ワードの出力が標準出力の代わりにバッファへ蓄積される。
+    // `Rc<RefCell<BufferSink>>`をクローンして持っておくことで、実行後に
+    // インタプリタの外から蓄積内容を確認できる。
+    let program =
+        build("テスト とは\n    「こんにちは」を　表示する\n    「世界」を　表示する\nこと。");
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    interp.load_program(&program);
+    interp.run_word("テスト").expect("実行に失敗した");
+
+    assert_eq!(sink.borrow().contents(), "こんにちは\n世界\n");
+}
