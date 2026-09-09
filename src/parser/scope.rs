@@ -95,6 +95,9 @@ fn check_expr(
         // （パーサーはトップレベルの1要素としてのみ生成する）ため、
         // スコープ検証の対象にはならない。
         Expr::VariableDecl(_) => {}
+        // ADR-0030: トップレベルのエイリアス宣言。VariableDeclと同様、
+        // 定義本体の中には現れないため、スコープ検証の対象にはならない。
+        Expr::AliasDecl { .. } => {}
         Expr::NumberLiteral(_) => {}
         Expr::StringLiteral(_) => {}
         Expr::SelfRecurse => {}

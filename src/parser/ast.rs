@@ -33,6 +33,11 @@ pub enum Expr {
     WordCall(String),
     /// トップレベルの変数宣言（`Xは 変数`）。ADR-0026。
     VariableDecl(String),
+    /// トップレベルのエイリアス宣言（`〈新語〉も 〈既存語〉の 別名`）。ADR-0030。
+    AliasDecl {
+        new_name: String,
+        existing_name: String,
+    },
     /// 助数詞正規化済みの数値トークン。
     NumberLiteral(i64),
     /// 文字列リテラル（鍵括弧「...」や二重引用符 "..."）。
