@@ -216,6 +216,36 @@ impl Interpreter {
         self.stack.len()
     }
 
+    /// スタックの上からn番目（0=トップ）を、消費せずに覗き見る（`摘み`用）。
+    fn stack_peek(&self, idx_from_top: usize) -> Result<&Value, RuntimeError> {
+        let len = self.stack.len();
+        if idx_from_top >= len {
+            return Err(RuntimeError::StackUnderflow);
+        }
+        Ok(&self.stack[len - 1 - idx_from_top])
+    }
+
+    /// スタックの上からidx_from_top番目の値をその場から抜き取り、
+    /// トップに積み直す（`転`/roll相当）。
+    fn stack_remove_from_top(&mut self, idx_from_top: usize) -> Result<(), RuntimeError> {
+        let len = self.stack.len();
+        if idx_from_top >= len {
+            return Err(RuntimeError::StackUnderflow);
+        }
+        let value = self.stack.remove(len - 1 - idx_from_top);
+        self.stack.push(value);
+        Ok(())
+    }
+
+    /// スタック全体を下から上の順に表示用文字列へ整形する（`スタック表示`用）。
+    fn stack_snapshot_display(&self) -> String {
+        self.stack
+            .iter()
+            .map(|v| format!("{v}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// データスタックの一番上を、代入先（変数参照）として取り出す。
     /// 変数参照でなければ`TypeMismatch`。
     fn pop_var_ref(&mut self) -> Result<VarSlot, RuntimeError> {
@@ -511,14 +541,6 @@ fn register_builtins(interp: &mut Interpreter) {
         Ok(())
     });
 
-    interp.register_native("交換", |interp| {
-        let b = interp.pop_value()?;
-        let a = interp.pop_value()?;
-        interp.push_value(b);
-        interp.push_value(a);
-        Ok(())
-    });
-
     interp.register_native("回転", |interp| {
         let c = interp.pop_value()?;
         let b = interp.pop_value()?;
@@ -546,6 +568,91 @@ fn register_builtins(interp: &mut Interpreter) {
 
     interp.register_native("捨", |interp| {
         interp.pop_value()?;
+        Ok(())
+    });
+
+    // ADR-0029: フェーズ1で追加されたスタック操作ワード群。
+
+    interp.register_native("深さ", |interp| {
+        let len = interp.stack_len() as i64;
+        interp.push_value(Value::Number(len));
+        Ok(())
+    });
+
+    interp.register_native("二捨", |interp| {
+        interp.pop_value()?;
+        interp.pop_value()?;
+        Ok(())
+    });
+
+    interp.register_native("二複製", |interp| {
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(a.clone());
+        interp.push_value(b.clone());
+        interp.push_value(a);
+        interp.push_value(b);
+        Ok(())
+    });
+
+    interp.register_native("二交換", |interp| {
+        let d = interp.pop_value()?;
+        let c = interp.pop_value()?;
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(c);
+        interp.push_value(d);
+        interp.push_value(a);
+        interp.push_value(b);
+        Ok(())
+    });
+
+    interp.register_native("取替捨", |interp| {
+        let b = interp.pop_value()?;
+        interp.pop_value()?; // a を捨てる
+        interp.push_value(b);
+        Ok(())
+    });
+
+    interp.register_native("取替越", |interp| {
+        let b = interp.pop_value()?;
+        let a = interp.pop_value()?;
+        interp.push_value(b.clone());
+        interp.push_value(a);
+        interp.push_value(b);
+        Ok(())
+    });
+
+    interp.register_native("摘み", |interp| {
+        let n = pop_number(interp)?;
+        if n < 0 {
+            return Err(RuntimeError::TypeMismatch {
+                expected: "0以上の整数".to_string(),
+                found: n.to_string(),
+            });
+        }
+        let idx_from_top = n as usize;
+        let value = interp.stack_peek(idx_from_top)?.clone();
+        interp.push_value(value);
+        Ok(())
+    });
+
+    interp.register_native("転", |interp| {
+        let n = pop_number(interp)?;
+        if n < 0 {
+            return Err(RuntimeError::TypeMismatch {
+                expected: "0以上の整数".to_string(),
+                found: n.to_string(),
+            });
+        }
+        let idx_from_top = n as usize;
+        interp.stack_remove_from_top(idx_from_top)?;
+        Ok(())
+    });
+
+    interp.register_native("スタック表示", |interp| {
+        let s = interp.stack_snapshot_display();
+        interp.output_mut().write_line(&s);
         Ok(())
     });
 
@@ -702,4 +809,11 @@ fn register_builtins(interp: &mut Interpreter) {
     // 定義が実行され、このワード本来の終了動作は失われる（意図した挙動）。
     interp.register_native("終了", |_interp| Err(RuntimeError::Exit));
     interp.register_native("さよなら", |_interp| Err(RuntimeError::Exit));
+
+    // ADR-0030: 交換は取替の別名（ADR-0017で判明した重複の解消）。
+    // Umor起動時に読み込む「標準ライブラリ相当のコード」として
+    // `交換も 取替の 別名。`を実際に評価する仕組み（起動時Umorコード読み込み）は
+    // 現状存在しないため、`Expr::AliasDecl`の評価ロジック（`dispatch`委譲）と
+    // 同じ形をRust側で直接記述することで代替する。
+    interp.register_native("交換", |interp| interp.dispatch("取替"));
 }
