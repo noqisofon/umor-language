@@ -34,7 +34,7 @@ trait OutputSink {
 ```
 
 - CLI向けの実装：標準出力にそのまま書き込む`StdoutSink`
-  （内部的に`println!`相当を呼ぶだけの�diaper薄いラッパー）。
+  （内部的に`println!`相当を呼ぶだけの薄いラッパー）。
 - WASM向けの実装：文字列をバッファ（`String`または`Vec<String>`）
   に蓄積する`BufferSink`。Playground側はWASM呼び出しの完了後、
   このバッファの内容をJSに返して出力欄に表示する。
