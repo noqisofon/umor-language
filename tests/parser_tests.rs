@@ -71,11 +71,13 @@ fn case4_variable_declaration() {
     let program = parse_src("カウンター とは\n    X は 変数\n    0を　X に　いれる\nこと。");
     let def = &program.definitions[0];
     assert_eq!(def.variables, vec!["x".to_string()]);
+    // ADR-0002: 「0を」は数値に空白なしで隣接しているため、「を」も
+    // 含めてまるごと数値トークンへ畳み込まれ、独立したワードとしては
+    // 現れない。
     assert_eq!(
         def.body,
         vec![
             Expr::NumberLiteral(0),
-            Expr::WordCall("を".to_string()),
             Expr::WordCall("x".to_string()),
             Expr::WordCall("に".to_string()),
             Expr::WordCall("いれる".to_string()),
