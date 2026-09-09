@@ -2,3 +2,6 @@
 
 # WinMerge Backup file
 *.bak
+
+# wasm-pack build output（GitHub Actionsでビルド時生成する）
+/playground/pkg/
