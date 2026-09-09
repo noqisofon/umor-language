@@ -246,6 +246,200 @@ fn adr0017_remainder_by_zero_is_a_runtime_error() {
     assert_eq!(err, RuntimeError::DivisionByZero);
 }
 
+// ADR-0029: フェーズ1COREワードセット拡充（9ワード追加＋交換/取替統合）。
+
+#[test]
+fn adr0029_depth_word_pushes_current_stack_length() {
+    // `run_word`はトークナイザーの正規化を経由しないため、送り仮名除去後の
+    // 語幹（「深さ」→「深」）を直接指定する（「入」「読」と同様の理由）。
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(20));
+    interp.run_word("深").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 3);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+}
+
+#[test]
+fn adr0029_two_drop_word_discards_top_two_items() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.push_value(Value::Number(3));
+    interp.run_word("二捨").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 1);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+}
+
+#[test]
+fn adr0029_two_dup_word_duplicates_top_two_items() {
+    // ( a b -- a b a b )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.run_word("二複製").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 4);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+}
+
+#[test]
+fn adr0029_two_swap_word_swaps_top_two_pairs() {
+    // ( a b c d -- c d a b )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.push_value(Value::Number(3));
+    interp.push_value(Value::Number(4));
+    interp.run_word("二交換").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 4);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(4));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(3));
+}
+
+#[test]
+fn adr0029_nip_word_drops_the_second_item() {
+    // ( a b -- b )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.run_word("取替捨").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 1);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+}
+
+#[test]
+fn adr0029_tuck_word_inserts_top_below_second_item() {
+    // ( a b -- b a b )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.run_word("取替越").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 3);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(1));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(2));
+}
+
+#[test]
+fn adr0029_pick_word_duplicates_the_nth_item_from_top() {
+    // ( 10 20 30 1 摘み -- 10 20 30 20 )
+    // `run_word`は送り仮名除去後の語幹「摘」を直接指定する（「深」と同様の理由）。
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(20));
+    interp.push_value(Value::Number(30));
+    interp.push_value(Value::Number(1));
+    interp.run_word("摘").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 4);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(20));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(30));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(20));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(10));
+}
+
+#[test]
+fn adr0029_pick_zero_is_equivalent_to_dup() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(42));
+    interp.push_value(Value::Number(0));
+    interp.run_word("摘").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 2);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(42));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(42));
+}
+
+#[test]
+fn adr0029_pick_beyond_stack_depth_is_a_stack_underflow_error() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(5)); // 深さ1のスタックに対し、添字5は範囲外
+
+    let err = interp
+        .run_word("摘")
+        .expect_err("スタックの深さを超えた摘みはエラーになるはず");
+    assert_eq!(err, RuntimeError::StackUnderflow);
+}
+
+#[test]
+fn adr0029_roll_word_moves_the_nth_item_to_top() {
+    // ( 10 20 30 2 転 -- 20 30 10 )
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(20));
+    interp.push_value(Value::Number(30));
+    interp.push_value(Value::Number(2));
+    interp.run_word("転").expect("実行に失敗した");
+
+    assert_eq!(interp.stack_len(), 3);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(10));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(30));
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(20));
+}
+
+#[test]
+fn adr0029_roll_beyond_stack_depth_is_a_stack_underflow_error() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(5)); // 深さ1のスタックに対し、添字5は範囲外
+
+    let err = interp
+        .run_word("転")
+        .expect_err("スタックの深さを超えた転はエラーになるはず");
+    assert_eq!(err, RuntimeError::StackUnderflow);
+}
+
+#[test]
+fn adr0029_stack_display_word_shows_contents_bottom_to_top_without_consuming() {
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    interp.push_value(Value::Number(1));
+    interp.push_value(Value::Number(2));
+    interp.push_value(Value::Number(3));
+    interp.run_word("スタック表示").expect("実行に失敗した");
+
+    assert_eq!(sink.borrow().contents(), "1 2 3\n");
+    // スタックを消費していないことを確認する。
+    assert_eq!(interp.stack_len(), 3);
+    assert_eq!(interp.pop_value().unwrap(), Value::Number(3));
+}
+
+#[test]
+fn adr0029_kokan_and_torikae_produce_the_same_result() {
+    // 交換は取替の別名（ADR-0030）。同じ入力に対し同じ結果になることを確認する。
+    let mut interp_kokan = Interpreter::new();
+    interp_kokan.push_value(Value::Number(1));
+    interp_kokan.push_value(Value::Number(2));
+    interp_kokan.run_word("交換").expect("実行に失敗した");
+
+    let mut interp_torikae = Interpreter::new();
+    interp_torikae.push_value(Value::Number(1));
+    interp_torikae.push_value(Value::Number(2));
+    interp_torikae.run_word("取替").expect("実行に失敗した");
+
+    assert_eq!(interp_kokan.stack_len(), interp_torikae.stack_len());
+    assert_eq!(
+        interp_kokan.pop_value().unwrap(),
+        interp_torikae.pop_value().unwrap()
+    );
+    assert_eq!(
+        interp_kokan.pop_value().unwrap(),
+        interp_torikae.pop_value().unwrap()
+    );
+}
+
 /// テストダブル: `表示`を、標準出力の代わりに`log`へ蓄積するよう差し替える。
 fn install_logging_display(interp: &mut Interpreter, log: Rc<RefCell<Vec<String>>>) {
     interp.register_native("表示", move |interp| {
