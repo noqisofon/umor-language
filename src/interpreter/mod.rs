@@ -253,6 +253,17 @@ impl Interpreter {
                 self.scope_chain[0].insert(name.clone(), Rc::new(RefCell::new(None)));
                 Ok(())
             }
+            Expr::AliasDecl {
+                new_name,
+                existing_name,
+            } => {
+                // ADR-0030: `existing_name`と同じ実体を指す新しい辞書エントリを
+                // 追加する（既存エントリの書き換えではないため、ADR-0008の
+                // append-only原則と衝突しない）。
+                let existing = existing_name.clone();
+                self.register_native(new_name.clone(), move |interp| interp.dispatch(&existing));
+                Ok(())
+            }
             Expr::NumberLiteral(n) => {
                 self.push_value(Value::Number(*n));
                 Ok(())

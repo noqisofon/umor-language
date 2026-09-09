@@ -48,6 +48,14 @@ pub fn parse_top_level_item(tokens: &[Token], pos: &mut usize) -> Result<TopLeve
         expect_word(tokens, pos, "。")?;
         return Ok(TopLevelItem::Expr(vec![Expr::VariableDecl(varname)]));
     }
+    if let Some((new_name, existing_name)) = try_alias_decl(tokens, pos) {
+        // 「Xも Yの 別名」の直後も同様に「。」で閉じる想定。ADR-0030。
+        expect_word(tokens, pos, "。")?;
+        return Ok(TopLevelItem::Expr(vec![Expr::AliasDecl {
+            new_name,
+            existing_name,
+        }]));
+    }
     if peek_word_then_keyword(tokens, *pos).is_some() {
         let def = parse_definition(tokens, pos, false)?;
         return Ok(TopLevelItem::Definition(def));
@@ -204,6 +212,22 @@ fn try_variable_decl(tokens: &[Token], pos: &mut usize) -> Option<String> {
     } else {
         None
     }
+}
+
+/// `〈新語〉も 〈既存語〉の 別名` を認識し、`(新語, 既存語)`を返す。
+/// マッチしなければ何も消費せず`None`。ADR-0030。
+fn try_alias_decl(tokens: &[Token], pos: &mut usize) -> Option<(String, String)> {
+    let new_name = word_at(tokens, *pos)?;
+    if is_word(tokens, *pos + 1, "も") {
+        let existing_name = word_at(tokens, *pos + 2)?;
+        if is_word(tokens, *pos + 3, "の") && is_word(tokens, *pos + 4, "別名") {
+            let new_name = new_name.to_string();
+            let existing_name = existing_name.to_string();
+            *pos += 5;
+            return Some((new_name, existing_name));
+        }
+    }
+    None
 }
 
 /// 半角/全角数字・マイナス符号のみからなる数値トークンを`i64`へ変換する。
@@ -735,6 +759,27 @@ mod tests {
             "親処理 とは\n    X は 変数\n    子処理 とは\n        X に　1を　いれる\n    本体 とは\n        子処理\nこと。",
         );
         assert_eq!(check_scopes(&program), Ok(()));
+    }
+
+    #[test]
+    fn adr0030_alias_decl_is_recognized() {
+        // 「も」「の」はいずれも構造キーワードのため、直前にスペースが必要
+        // （ADR-0015の「は」と同様、スペースがないと送り仮名として吸収され消える）。
+        let tokens = tokenize("交換 も 取替 の 別名。").unwrap();
+        let mut pos = 0usize;
+        match parse_top_level_item(&tokens, &mut pos).unwrap() {
+            TopLevelItem::Expr(exprs) => {
+                assert_eq!(
+                    exprs,
+                    vec![Expr::AliasDecl {
+                        new_name: "交換".to_string(),
+                        existing_name: "取替".to_string(),
+                    }]
+                );
+            }
+            other => panic!("expected Expr, got {other:?}"),
+        }
+        assert_eq!(pos, tokens.len());
     }
 
     #[test]
