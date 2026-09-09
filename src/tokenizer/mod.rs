@@ -93,8 +93,10 @@ fn contains_digit(chars: &[char]) -> bool {
 
 /// 生トークン（区切り文字を含まない1塊の文字列）を分類し、トークンとして積む。
 ///
-/// 先頭が数値パターンで構成される場合、数値部分と残り部分（助数詞等）を
-/// 分割して2つのトークンにする（例: 「５６０円」→ NumberLiteral("５６０") + Word("円")）。
+/// 先頭が数値パターンで構成される場合、数値に空白なしで隣接する残り部分
+/// （助数詞等）はADR-0002の規定どおり数値トークンへ完全に畳み込まれ、
+/// 独立したトークン・ワードとしては一切現れない
+/// （例: 「５６０円」→ NumberLiteral("５６０") のみ。「円」は消える）。
 fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
     let chars: Vec<char> = raw.chars().collect();
     let num_len = number_prefix_len(&chars);
@@ -102,20 +104,10 @@ fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
     if num_len > 0 && contains_digit(&chars[..num_len]) {
         let num_part: String = chars[..num_len].iter().collect();
         tokens.push(Token {
-            kind: TokenKind::NumberLiteral(num_part.clone()),
-            raw: num_part,
+            kind: TokenKind::NumberLiteral(num_part),
+            raw: raw.to_string(),
             line,
         });
-
-        if num_len < chars.len() {
-            let rest: String = chars[num_len..].iter().collect();
-            let normalized = normalize_word(&rest);
-            tokens.push(Token {
-                kind: TokenKind::Word(normalized),
-                raw: rest,
-                line,
-            });
-        }
         return;
     }
 
@@ -202,6 +194,9 @@ fn line_col_at(chars: &[char], idx: usize) -> (usize, usize) {
 ///   直前の語などに空白なしで隣接する場合は添字アクセス糖衣構文として
 ///   `OpenParen`/`CloseParen` トークンを生成する（中身は通常どおり字句解析する）。
 /// - 単語の先頭が数値パターンの場合、数値部分を `NumberLiteral` として切り出す。
+///   数値に空白なしで隣接する残り部分（助数詞等）はADR-0002の規定により
+///   数値トークンへ完全に畳み込まれ、独立したトークンとしては現れない
+///   （例: `５６０円` → `NumberLiteral("５６０")` のみ）。
 /// - `。` は常に単独の `Word("。")` トークンとして切り出す。
 pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
     let chars: Vec<char> = src.chars().collect();
@@ -525,15 +520,38 @@ mod tests {
     }
 
     #[test]
-    fn number_literal_prefix_is_split_from_word() {
+    fn number_literal_suffix_is_folded_away_per_adr_0002() {
+        // ADR-0002: 数値に空白なしで隣接する非数値部分（助数詞等）は数値
+        // トークンに完全に畳み込まれ、独立したトークン・ワードとして
+        // 一切現れない（「円」は消える）。
         let tokens = tokenize("５６０円を　売り上げに　入れ").unwrap();
         assert_eq!(
             tokens[0].kind,
             TokenKind::NumberLiteral("５６０".to_string())
         );
-        assert!(tokens
+        assert!(!tokens
             .iter()
-            .all(|t| !matches!(&t.kind, TokenKind::Word(w) if w.contains('５'))));
+            .any(|t| matches!(&t.kind, TokenKind::Word(w) if w == "円")));
+        // 「円を」は数値に空白なしで隣接しているため、「を」も含めて
+        // まるごと数値トークンへ畳み込まれ、消える。
+        assert_eq!(words(&tokens), vec!["売上", "入"]);
+    }
+
+    #[test]
+    fn counter_word_adjacent_to_number_is_folded_not_a_separate_word() {
+        // issue #27: 「1つ」の「つ」が独立ワードとして辞書引きされ、
+        // 未定義ワードエラーになってはならない。
+        let tokens = tokenize("1つ　摘み").unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::NumberLiteral("1".to_string()));
+        assert_eq!(words(&tokens), vec!["摘"]);
+    }
+
+    #[test]
+    fn counter_word_separated_by_space_stays_an_independent_word() {
+        // ADR-0002: 空白を挟めば畳み込まれず、独立したワードとして残る。
+        let tokens = tokenize("1 番目").unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::NumberLiteral("1".to_string()));
+        assert_eq!(words(&tokens), vec!["番目"]);
     }
 
     #[test]
