@@ -98,6 +98,21 @@ fn check_expr(
         // ADR-0030: トップレベルのエイリアス宣言。VariableDeclと同様、
         // 定義本体の中には現れないため、スコープ検証の対象にはならない。
         Expr::AliasDecl { .. } => {}
+        // ADR-0020/ADR-0031: 可変値・定数値は`変数`とは別のスコープ機構
+        // （Interpreterの`value_scope_chain`）で管理されるため、`変数`専用の
+        // `declared_in_tree`／`visible`によるスコープチェックの対象には
+        // しない（未配線のまま、ADR-0013の宿題）。内部の式は再帰的に
+        // チェックする。
+        Expr::ValueDecl { init_expr, .. } => {
+            for e in init_expr {
+                check_expr(e, def, declared_in_tree, visible, errors);
+            }
+        }
+        Expr::Assign { value_expr, .. } => {
+            for e in value_expr {
+                check_expr(e, def, declared_in_tree, visible, errors);
+            }
+        }
         Expr::NumberLiteral(_) => {}
         Expr::StringLiteral(_) => {}
         Expr::SelfRecurse => {}

@@ -48,6 +48,14 @@ pub fn parse_top_level_item(tokens: &[Token], pos: &mut usize) -> Result<TopLeve
         expect_word(tokens, pos, "。")?;
         return Ok(TopLevelItem::Expr(vec![Expr::VariableDecl(varname)]));
     }
+    // 「Xは 可変値で 〈式〉が 初期値」の判定は、`peek_word_then_keyword`
+    // （ワード定義開始判定）より必ず先に試す必要がある（「Xは」という
+    // 並びがワード定義開始と誤認されるため。`変数`宣言と同じ理由）。
+    if let Some(expr) = try_value_decl(tokens, pos, false)? {
+        // 「初期値」の直後は「。」で閉じる想定（トップレベルの1要素として完結する）。
+        expect_word(tokens, pos, "。")?;
+        return Ok(TopLevelItem::Expr(vec![expr]));
+    }
     if let Some((new_name, existing_name)) = try_alias_decl(tokens, pos) {
         // 「Xも Yの 別名」の直後も同様に「。」で閉じる想定。ADR-0030。
         expect_word(tokens, pos, "。")?;
@@ -92,6 +100,15 @@ fn parse_top_level_expr_sequence(
                 tokens,
                 *pos,
             ));
+        }
+
+        if let Some(expr) = try_value_decl(tokens, pos, false)? {
+            exprs.push(expr);
+            continue;
+        }
+        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
+            exprs.push(expr);
+            continue;
         }
 
         if is_word(tokens, *pos, "ここから") {
@@ -214,6 +231,145 @@ fn try_variable_decl(tokens: &[Token], pos: &mut usize) -> Option<String> {
     }
 }
 
+/// `Xは 可変値` / `Xは 定数値` のヘッダ部分を認識し、`(X, is_constant)`を
+/// 返す。マッチしなければ何も消費せず`None`。
+///
+/// 注意（トークナイザーの送り仮名正規化）: `可変値で`は活用語尾の`で`が
+/// 送り仮名として吸収され、単一トークン`可変値`に正規化される（`定数値で`
+/// も同様）。そのため語幹`可変値`／`定数値`単独への一致で判定してよい。
+fn try_value_decl_header(tokens: &[Token], pos: usize) -> Option<(String, bool)> {
+    let name = word_at(tokens, pos)?;
+    if !is_word(tokens, pos + 1, "は") {
+        return None;
+    }
+    if is_word(tokens, pos + 2, "可変値") {
+        Some((name.to_string(), false))
+    } else if is_word(tokens, pos + 2, "定数値") {
+        Some((name.to_string(), true))
+    } else {
+        None
+    }
+}
+
+/// `Xは 可変値で 〈式〉が 初期値` / `Xは 定数値で 〈式〉が 初期値` を認識し、
+/// `Expr::ValueDecl`を返す。ヘッダにマッチしなければ何も消費せず`Ok(None)`。
+/// ヘッダにマッチした後、初期値の式（`初期値`で終端）が正しく閉じられ
+/// なければ`Err`。ADR-0020。
+fn try_value_decl(
+    tokens: &[Token],
+    pos: &mut usize,
+    in_definition: bool,
+) -> Result<Option<Expr>, ParseError> {
+    let Some((name, is_constant)) = try_value_decl_header(tokens, *pos) else {
+        return Ok(None);
+    };
+    *pos += 3; // 名前 + は + 可変値/定数値
+    let init_expr = parse_value_init_expr(tokens, pos, in_definition)?;
+    Ok(Some(Expr::ValueDecl {
+        name,
+        is_constant,
+        init_expr,
+    }))
+}
+
+/// `可変値で`/`定数値で`の直後から`初期値`が現れるまでの式を解析する。
+/// `parse_branch`と同様、ネストした`ならば`・ループも扱えるが、終端
+/// キーワードが`初期値`である点が異なる。ADR-0020。
+fn parse_value_init_expr(
+    tokens: &[Token],
+    pos: &mut usize,
+    in_definition: bool,
+) -> Result<Vec<Expr>, ParseError> {
+    let mut exprs = Vec::new();
+    loop {
+        if is_word(tokens, *pos, "初期値") {
+            *pos += 1;
+            break;
+        }
+        if *pos >= tokens.len() {
+            return Err(ParseError::new(
+                "可変値/定数値の宣言が「初期値」で閉じられないまま入力が終了しました",
+                tokens,
+                *pos,
+            ));
+        }
+
+        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
+            exprs.push(expr);
+            continue;
+        }
+        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
+            exprs.push(expr);
+            continue;
+        }
+
+        if is_word(tokens, *pos, "ここから") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::InfiniteLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "回数指定") {
+            *pos += 1;
+            let body = parse_loop_body(tokens, pos, in_definition)?;
+            exprs.push(Expr::CountedLoop { body });
+            continue;
+        }
+
+        if is_word(tokens, *pos, "ならば") {
+            *pos += 1;
+            let cond = std::mem::take(&mut exprs);
+            let then_branch = parse_branch(tokens, pos, in_definition)?;
+            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
+                *pos += 1;
+                Some(parse_branch(tokens, pos, in_definition)?)
+            } else {
+                None
+            };
+            expect_word(tokens, pos, "つぎに")?;
+            exprs.push(Expr::IfElse {
+                cond,
+                then_branch,
+                else_branch,
+            });
+            continue;
+        }
+
+        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
+    }
+    Ok(exprs)
+}
+
+/// `〈値の式〉 〈対象名〉 代入` を認識する。`tokens[*pos]`が`代入`であり、
+/// かつ直前に積まれた`exprs`の末尾が`Expr::WordCall(name)`（＝まだ辞書引き
+/// されていない対象名）であれば、それを取り除いて`Expr::Assign`を返す。
+///
+/// 対象名をここで横取りする理由（ADR-0031）: `可変値`の名前を通常の
+/// `WordCall`として評価すると、対象を指し示す前に現在値がスタックへ
+/// 積まれてしまい、代入先を区別できなくなる。パーサーが`代入`の直前
+/// トークンを対象名として直接ASTノードへ埋め込むことで、ワード呼び出し
+/// としての評価が起きる前に横取りする。
+///
+/// マッチしなければ何も消費せず`None`。
+fn try_assign(tokens: &[Token], pos: &mut usize, exprs: &mut Vec<Expr>) -> Option<Expr> {
+    if !is_word(tokens, *pos, "代入") {
+        return None;
+    }
+    if !matches!(exprs.last(), Some(Expr::WordCall(_))) {
+        return None;
+    }
+    let name = match exprs.pop() {
+        Some(Expr::WordCall(name)) => name,
+        _ => unreachable!("直前でExpr::WordCall(_)であることを確認済み"),
+    };
+    *pos += 1;
+    Some(Expr::Assign {
+        name,
+        value_expr: Vec::new(),
+    })
+}
+
 /// `〈新語〉も 〈既存語〉の 別名` を認識し、`(新語, 既存語)`を返す。
 /// マッチしなければ何も消費せず`None`。ADR-0030。
 fn try_alias_decl(tokens: &[Token], pos: &mut usize) -> Option<(String, String)> {
@@ -313,6 +469,18 @@ fn parse_definition(
         // 開始や暗黙クローズのトリガーと誤認しないようにするため）。
         if let Some(varname) = try_variable_decl(tokens, pos) {
             variables.push(varname);
+            continue;
+        }
+
+        // 可変値/定数値の宣言・代入も、変数宣言と同様にどの文脈でも認識する。
+        // 「単語 とは/は」の先読み判定（クローズ判定・局所処理単語の開始判定）
+        // より必ず先に試す（「Xは 可変値で」の「Xは」を誤認しないようにするため）。
+        if let Some(expr) = try_value_decl(tokens, pos, true)? {
+            body.push(expr);
+            continue;
+        }
+        if let Some(expr) = try_assign(tokens, pos, &mut body) {
+            body.push(expr);
             continue;
         }
 
@@ -432,6 +600,15 @@ fn parse_branch(
             ));
         }
 
+        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
+            exprs.push(expr);
+            continue;
+        }
+        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
+            exprs.push(expr);
+            continue;
+        }
+
         if is_word(tokens, *pos, "ここから") {
             *pos += 1;
             let body = parse_loop_body(tokens, pos, in_definition)?;
@@ -524,6 +701,15 @@ fn parse_loop_body(
                 tokens,
                 *pos,
             ));
+        }
+
+        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
+            exprs.push(expr);
+            continue;
+        }
+        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
+            exprs.push(expr);
+            continue;
         }
 
         if is_word(tokens, *pos, "ここから") {
