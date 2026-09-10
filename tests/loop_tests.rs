@@ -126,3 +126,55 @@ fn break_outside_loop_is_runtime_error() {
         other => panic!("expected Runtime error, got {other}"),
     }
 }
+
+#[test]
+fn test_fizzbuzz_with_tsugini_and_counted_loop() {
+    let src = "
+ふぃずばず とは、
+    15を
+    回数指定して
+        回数の 15の 余りが 0と 等しい？ ならば、
+            「ふぃずばず」を 表示
+        そうでなければ、
+            回数の 3の 余りが 0と 等しい？ ならば、
+                「ふぃず」と 表示
+            そうでなければ、
+                回数の 5の 余りが 0と 等しい？ ならば、
+                    「ばず」と 表示
+                そうでなければ、
+                    回数を 表示
+                つぎに
+            つぎに
+        つぎに
+    繰り返す
+こと。
+
+ふぃずばず。
+";
+    let mut interp = Interpreter::new();
+    let log = Rc::new(RefCell::new(Vec::new()));
+    install_logging_display(&mut interp, log.clone());
+
+    run_source(&mut interp, src).expect("ふぃずばずの実行に失敗した");
+
+    assert_eq!(
+        *log.borrow(),
+        vec![
+            "ふぃずばず", // 回数 0 (0 % 15 == 0)
+            "1",          // 回数 1
+            "2",          // 回数 2
+            "ふぃず",     // 回数 3
+            "4",          // 回数 4
+            "ばず",       // 回数 5
+            "ふぃず",     // 回数 6
+            "7",          // 回数 7
+            "8",          // 回数 8
+            "ふぃず",     // 回数 9
+            "ばず",       // 回数 10
+            "11",         // 回数 11
+            "ふぃず",     // 回数 12
+            "13",         // 回数 13
+            "14",         // 回数 14
+        ]
+    );
+}
