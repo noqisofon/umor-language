@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -94,6 +94,19 @@ trait OutputSink {
 - `BufferSink`のバッファサイズ上限（無限ループで出力し続けた
   場合の対処）は未検討。Playground側でのタイムアウト・実行制限
   と合わせて別途検討が必要になる可能性がある。
+
+## 実装状況（2026-09-10）
+
+本ADRの決定事項は全面的に実装された。
+
+### 実装した内容
+
+- **`OutputSink` trait の新設**: `src/interpreter/output.rs` にて `pub trait OutputSink { fn write_line(&mut self, s: &str); }` を定義。
+- **具象実装**:
+  - `StdoutSink`: 標準出力（`println!`）へ出力するCLI用実装。
+  - `BufferSink`: `Vec<String>` へ出力行を蓄積するテスト・WASM用実装。`Rc<RefCell<BufferSink>>` に対する `OutputSink` 実装も提供し、外部から出力内容を取り出せるようにした。
+- **評価器への注入**: `Interpreter::with_output(output: Box<dyn OutputSink>)` を新設。`Interpreter::new()` は既定で `StdoutSink` を使用。`表示` ワードなどの出力処理は `self.output.write_line(&s)` に統一された。
+- `tests/interpreter_tests.rs` の `adr0028_buffer_sink_accumulates_display_output` にて、バッファ蓄積のテストが通過している。
 
 ## References
 

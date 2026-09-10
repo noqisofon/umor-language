@@ -5,3 +5,7 @@
 
 # wasm-pack build output（GitHub Actionsでビルド時生成する）
 /playground/pkg/
+
+# VSCode Extension で使うやつ
+v1
+/.lsp/.cache

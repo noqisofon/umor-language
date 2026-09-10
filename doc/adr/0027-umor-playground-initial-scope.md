@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -96,6 +96,16 @@ ADR-0028として別途起票済みであり、本ADRはその結果を前提と
 - ホスティング先（同居リポジトリ or `gh-pages`ブランチ）は未確定。
 - WASMバイナリサイズ・ロード時間の許容範囲は未検討。将来
   ワード数が増えた際に問題化する可能性がある。
+
+## 実装状況（2026-09-10）
+
+本ADRの初期スコープ（単発実行版Playground）およびWASM化は全面的に実装された。
+
+### 実装した内容
+
+- **WASMバインディング**: `src/wasm.rs` にて `run_umor(source: &str) -> String` を実装。`wasm-bindgen` および `BufferSink` を使用し、評価器の出力を文字列として回収する。`panic::catch_unwind` によるパニック捕捉も組み込み済み。
+- **UI実装**: `playground/` ディレクトリ配下に、軽量フレームワーク（Preact + HTM、`playground/vendor/htm-preact-standalone.module.js`）を用いた単発実行UI（エディタ、実行ボタン、出力・エラー表示）を実装。
+- **前提の解決**: ADR-0028（出力I/O抽象化）が実装されたことにより、CLIと同一のインタプリタコアをWASMから共有できている。
 
 ## References
 

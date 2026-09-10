@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -122,6 +122,19 @@ ADR-0017・ADR-0029で発覚していた`swap`相当ワードの重複を、
 - Playground（ADR-0027）上でエイリアス関係をどう見せるか
   （例：ワード一覧に本体とエイリアスの対応を表示するか）は
   未検討。
+
+## 実装状況（2026-09-10）
+
+本ADRの決定事項は全面的に実装された。
+
+### 実装した内容
+
+- **構文解析**: `src/parser/mod.rs` の `try_alias_decl` にて `〈新語〉も 〈既存語〉の 別名。` を認識し、ASTノード `Expr::AliasDecl { new_name, existing_name }` を生成する。
+- **評価器ディスパッチ**: `Expr::AliasDecl` の評価時、`register_native(new_name, move |interp| interp.dispatch(&existing))` により、既存語への委譲を行うエントリを辞書へ追加する（ADR-0008のappend-only原則に準拠）。
+- **宿題への対応**:
+  - エイリアス先が未定義だった場合、宣言時点ではエラーにならず、実際にその新語が呼び出された時点で `RuntimeError::UndefinedWord` となる遅延ディスパッチ方式を採用。
+- **組み込みワードの整理**: `交換` を `取替` のエイリアスとして `Interpreter::new()` 内で初期登録した。
+- `tests/toplevel_tests.rs` にて、エイリアス構文認識、同一実装へのディスパッチ、未定義語へのエイリアス時の遅延エラーなどのテストが通過している。
 
 ## References
 
