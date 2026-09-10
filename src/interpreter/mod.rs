@@ -98,6 +98,9 @@ pub struct Interpreter {
     /// ADR-0028: `表示`ワード等の出力系ワードが書き込む先。CLIでは標準出力、
     /// 将来のWASM化ではバッファに差し替えられるよう抽象化してある。
     output: Box<dyn OutputSink>,
+    /// ADR-0022: `必要`が読み込み済みと判定するための、正規化済みパスの集合。
+    /// `含める`はこれを一切参照しない（無条件に読み込むため）。
+    loaded_paths: std::collections::HashSet<String>,
 }
 
 impl Interpreter {
@@ -115,6 +118,7 @@ impl Interpreter {
             counted_loop_stack: Vec::new(),
             call_trace: Vec::new(),
             output,
+            loaded_paths: std::collections::HashSet::new(),
         };
         register_builtins(&mut interp);
         interp
@@ -512,6 +516,40 @@ fn pop_array(interp: &mut Interpreter) -> Result<Rc<RefCell<Vec<Value>>>, Runtim
     }
 }
 
+/// スタックトップを、モジュールのファイルパスとして取り出す（`含める`／`必要`用）。
+fn pop_path_string(interp: &mut Interpreter) -> Result<String, RuntimeError> {
+    match interp.pop_value()? {
+        Value::String(s) => Ok(s.to_string()),
+        other => Err(RuntimeError::TypeMismatch {
+            expected: "文字列".to_string(),
+            found: other.type_name().to_string(),
+        }),
+    }
+}
+
+/// ADR-0022の宿題「パス正規化」への最小の回答: 先頭の`./`のみを1回剥がす。
+/// `../`・絶対パス・区切り文字の差異には対応しない（意図的なスコープ外）。
+fn normalize_module_path(path: &str) -> String {
+    path.strip_prefix("./").unwrap_or(path).to_string()
+}
+
+/// `path`の内容を読み込み、現在のインタプリタ状態に対して評価する
+/// （`含める`／`必要`共通処理）。ファイルI/OはCLI専用機能と割り切っており、
+/// WASM32ターゲットではコンパイルは通るが、実行時に`fs::read_to_string`が
+/// 失敗して`ModuleReadError`になるだけでよい（ADR-0022）。
+fn include_file(interp: &mut Interpreter, path: &str) -> Result<(), RuntimeError> {
+    let src = std::fs::read_to_string(path).map_err(|e| RuntimeError::ModuleReadError {
+        path: path.to_string(),
+        reason: e.to_string(),
+    })?;
+    crate::runner::run_source(interp, &src)
+        .map(|_outcome| ())
+        .map_err(|e| RuntimeError::ModuleError {
+            path: path.to_string(),
+            message: e.to_string(),
+        })
+}
+
 /// `value`が`Value::VarRef`（未解決の変数参照）であれば`TypeMismatch`にする。
 /// Phase 1では、変数参照を具体的な値として扱えるワードは「読」のみで、
 /// それ以外のワード（`表示`を除く）はこれを通して弾く。
@@ -816,4 +854,22 @@ fn register_builtins(interp: &mut Interpreter) {
     // 現状存在しないため、`Expr::AliasDecl`の評価ロジック（`dispatch`委譲）と
     // 同じ形をRust側で直接記述することで代替する。
     interp.register_native("交換", |interp| interp.dispatch("取替"));
+
+    // ADR-0022: モジュール読み込み機構。`含める`は無条件読み込み（Forthの
+    // INCLUDE相当）、`必要`は同一パスの重複読み込みを防ぐ（REQUIRE相当）。
+    interp.register_native("含める", |interp| {
+        let path = pop_path_string(interp)?;
+        include_file(interp, &path)
+    });
+
+    interp.register_native("必要", |interp| {
+        let path = pop_path_string(interp)?;
+        let normalized = normalize_module_path(&path);
+        if interp.loaded_paths.contains(&normalized) {
+            return Ok(());
+        }
+        include_file(interp, &path)?;
+        interp.loaded_paths.insert(normalized);
+        Ok(())
+    });
 }

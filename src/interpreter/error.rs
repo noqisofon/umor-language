@@ -30,6 +30,12 @@ pub enum RuntimeError {
     /// 実装（`Result<(), RuntimeError>`を返すもの）への影響なしに、`?`によって
     /// 通常のエラーと同じ経路でここまで伝播してくる。
     Exit,
+    /// `含める`／`必要`（ADR-0022）が対象ファイルを読み込めなかった。
+    ModuleReadError { path: String, reason: String },
+    /// `含める`／`必要`が読み込んだファイルの中で字句・構文・実行時エラーが
+    /// 起きた。`crate::error::UmorError`を直接保持すると`interpreter`↔`error`が
+    /// 循環依存になるため、整形済み文字列（`Display`の出力）として保持する。
+    ModuleError { path: String, message: String },
 }
 
 impl fmt::Display for RuntimeError {
@@ -52,6 +58,18 @@ impl fmt::Display for RuntimeError {
                 write!(f, "「打ち切り」はループ内でのみ使用できます")
             }
             RuntimeError::Exit => write!(f, "実行を終了します"),
+            RuntimeError::ModuleReadError { path, reason } => {
+                write!(
+                    f,
+                    "モジュールを読み込めません（パス: 「{path}」, 理由: {reason}）"
+                )
+            }
+            RuntimeError::ModuleError { path, message } => {
+                write!(
+                    f,
+                    "モジュール「{path}」の読み込み中にエラーが発生しました:\n{message}"
+                )
+            }
         }
     }
 }
