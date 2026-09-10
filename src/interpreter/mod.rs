@@ -53,6 +53,16 @@ enum WordDefinition {
 /// 共有・書き換えできる（エイリアシング）。`None`は未初期化を表す。
 pub(crate) type VarSlot = Rc<RefCell<Option<Value>>>;
 
+/// 可変値・定数値の実体（ADR-0020）。`変数`（`VarSlot`）とは異なり
+/// アドレスを持たず、名前を書いた時点で`cell`の中身がそのまま
+/// スタックに積まれる。`Rc<RefCell<..>>`により、`変数`と同様に
+/// 親の可変値を子（局所処理単語）が共有・書き換えできる。
+#[derive(Clone)]
+struct ValueSlot {
+    cell: Rc<RefCell<Value>>,
+    is_constant: bool,
+}
+
 /// 実行中のワード呼び出し1回分のコンテキスト（ADR-0008・ADR-0009向け）。
 ///
 /// `Interpreter::call`が呼ばれるたびに1つ積まれ、戻るときに外される。
@@ -84,6 +94,12 @@ pub struct Interpreter {
     /// 外側（祖先）から内側（現在実行中）へ向かう、変数フレームのスタック。
     /// フレーム`i`は、祖先チェーン上のある`Definition`が宣言した変数の集合。
     scope_chain: Vec<HashMap<String, VarSlot>>,
+    /// 外側（祖先）から内側（現在実行中）へ向かう、可変値・定数値フレームの
+    /// スタック（ADR-0020）。`変数`用の`scope_chain`とは独立した別テーブル。
+    /// `変数`と対称な親子スコープ構造を持ち、`call`メソッドで`scope_chain`と
+    /// 対でpush/popする。`変数`とは異なり事前一括収集はせず、`可変値`宣言を
+    /// 実行した瞬間にその時点でアクティブな（末尾の）フレームへ挿入する。
+    value_scope_chain: Vec<HashMap<String, ValueSlot>>,
     /// 外側（祖先）から内側（現在実行中）へ向かう、実行中のワード呼び出しの
     /// スタック。局所処理単語の名前引きテーブル（[`ActiveCall::locals`]）・
     /// ADR-0008の世代境界（[`ActiveCall::self_ref`]）・ADR-0009の`再帰`が
@@ -114,6 +130,7 @@ impl Interpreter {
             stack: Vec::new(),
             dictionary: HashMap::new(),
             scope_chain: vec![HashMap::new()], // ADR-0026: トップレベル用の土台フレーム
+            value_scope_chain: vec![HashMap::new()], // ADR-0020: 同上（可変値・定数値用）
             call_stack: Vec::new(),
             counted_loop_stack: Vec::new(),
             call_trace: Vec::new(),
@@ -269,6 +286,14 @@ impl Interpreter {
             .find_map(|frame| frame.get(name).cloned())
     }
 
+    /// `lookup_variable`と対称な、可変値・定数値の探索（内側から外側）。
+    fn lookup_value_slot(&self, name: &str) -> Option<ValueSlot> {
+        self.value_scope_chain
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(name).cloned())
+    }
+
     /// `Expr`列を先頭から順に評価する。
     fn eval_exprs(&mut self, exprs: &[Expr]) -> Result<(), RuntimeError> {
         for expr in exprs {
@@ -296,6 +321,45 @@ impl Interpreter {
                 // append-only原則と衝突しない）。
                 let existing = existing_name.clone();
                 self.register_native(new_name.clone(), move |interp| interp.dispatch(&existing));
+                Ok(())
+            }
+            Expr::ValueDecl {
+                name,
+                is_constant,
+                init_expr,
+            } => {
+                // ADR-0020: 宣言した瞬間（実行順の到達時点）に`init_expr`を
+                // 評価し、その結果をそのまま初期値として束縛する（`変数`の
+                // ような事前一括収集ではない）。同名の再宣言は、現在アクティブな
+                // フレームへ新しいスロットを上書き挿入する（新しいスロットに
+                // 置き換わる。既存の参照者へは影響しない）。
+                self.eval_exprs(init_expr)?;
+                let value = require_concrete(self.pop_value()?)?;
+                let slot = ValueSlot {
+                    cell: Rc::new(RefCell::new(value)),
+                    is_constant: *is_constant,
+                };
+                self.value_scope_chain
+                    .last_mut()
+                    .expect("value_scope_chainは常に非空")
+                    .insert(name.clone(), slot);
+                Ok(())
+            }
+            Expr::Assign { name, value_expr } => {
+                // ADR-0031: `可変値`への再設定。`value_expr`（現状のパーサー
+                // 実装では常に空）を評価してからスタックトップを新しい値として
+                // 取り出す。対象名はパーサーが構造キーワードとして直接埋め込んで
+                // いるため（`WordCall`としての評価は起きない）、ここで改めて
+                // 名前解決する。
+                self.eval_exprs(value_expr)?;
+                let value = require_concrete(self.pop_value()?)?;
+                let slot = self
+                    .lookup_value_slot(name)
+                    .ok_or_else(|| RuntimeError::UndefinedWord(name.clone()))?;
+                if slot.is_constant {
+                    return Err(RuntimeError::AssignToConstant(name.clone()));
+                }
+                *slot.cell.borrow_mut() = value;
                 Ok(())
             }
             Expr::NumberLiteral(n) => {
@@ -383,6 +447,13 @@ impl Interpreter {
             return Ok(());
         }
 
+        // ADR-0020: `可変値`・`定数値`はアドレスを持たず、名前を書いた時点で
+        // 値そのものが直接積まれる（`変数`のような`VarRef`は経由しない）。
+        if let Some(slot) = self.lookup_value_slot(name) {
+            self.push_value(slot.cell.borrow().clone());
+            return Ok(());
+        }
+
         let current_locals = self
             .call_stack
             .last()
@@ -445,6 +516,9 @@ impl Interpreter {
             .map(|v| (v.clone(), Rc::new(RefCell::new(None))))
             .collect();
         self.scope_chain.push(frame);
+        // ADR-0020: `可変値`は事前一括収集をしないため、空のフレームを積む
+        // （宣言を実行した瞬間に`Expr::ValueDecl`がここへ挿入する）。
+        self.value_scope_chain.push(HashMap::new());
         self.call_trace.push(name.to_string());
         self.call_stack.push(ActiveCall {
             name: Rc::from(name),
@@ -457,6 +531,7 @@ impl Interpreter {
 
         self.call_stack.pop();
         self.call_trace.pop();
+        self.value_scope_chain.pop();
         self.scope_chain.pop();
         result
     }

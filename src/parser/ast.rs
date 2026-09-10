@@ -38,6 +38,21 @@ pub enum Expr {
         new_name: String,
         existing_name: String,
     },
+    /// 可変値・定数値の宣言（`Xは 可変値で 〈式〉が 初期値` /
+    /// `Xは 定数値で 〈式〉が 初期値`）。ADR-0020。`変数`とは異なり、
+    /// 宣言された瞬間（実行順の到達時点）に`init_expr`が評価され、その
+    /// 結果がそのまま初期値として束縛される。
+    ValueDecl {
+        name: String,
+        is_constant: bool,
+        init_expr: Vec<Expr>,
+    },
+    /// 可変値への再設定（`〈値の式〉 〈対象名〉 代入`）。ADR-0031のうち
+    /// `可変値`への`代入`部分のみ（予約・無名ワードは未実装）。`name`の
+    /// 直前に書かれた値の式は、通常の`WordCall`列としてこのノードより
+    /// 前に本体へそのまま残る（実行順にスタックへ積まれる）ため、
+    /// `value_expr`は現状のパーサー実装では常に空になる。
+    Assign { name: String, value_expr: Vec<Expr> },
     /// 助数詞正規化済みの数値トークン。
     NumberLiteral(i64),
     /// 文字列リテラル（鍵括弧「...」や二重引用符 "..."）。
