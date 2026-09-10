@@ -20,5 +20,5 @@ pub use parser::{
     check_scopes, parse, parse_top_level_item, Definition, Expr, ParseError, Program, ScopeError,
     TopLevelItem,
 };
-pub use runner::run_source;
+pub use runner::{run_file_source, run_source};
 pub use tokenizer::{tokenize, LexError, Token, TokenKind};

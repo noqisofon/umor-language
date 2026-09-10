@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::io::{self, BufRead, Write};
 
-use umor::{run_source, ExecutionOutcome, Interpreter};
+use umor::{run_file_source, run_source, ExecutionOutcome, Interpreter};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -12,9 +12,13 @@ fn main() {
     }
 }
 
-/// `.umor`ファイルを読み込み、`run_source`で実行する。
+/// `.umor`ファイルを読み込み、`run_file_source`で実行する。
 /// トップレベル式がその場で実行されるため、実行したい処理はファイルに
 /// そのまま書けばよい（どのワードを呼ぶかを別途指定する必要はない）。
+///
+/// ADR-0013: ファイル実行は全体パース→静的スコープチェック
+/// （`check_scopes`）→評価という`run_file_source`のフェーズ分けを経る。
+/// スコープ違反があれば一切評価に入らずにエラーとして報告する。
 fn run_file(path: &str) {
     let src = match fs::read_to_string(path) {
         Ok(s) => s,
@@ -27,7 +31,7 @@ fn run_file(path: &str) {
     let mut interp = Interpreter::new();
     // `ExecutionOutcome::Exit`（`終了`・`さよなら`）でもエラーでも、
     // ファイル実行としてはその時点で処理が終わる。異常なのはエラーの場合のみ。
-    if let Err(e) = run_source(&mut interp, &src) {
+    if let Err(e) = run_file_source(&mut interp, &src) {
         eprintln!("エラー: {e}");
         std::process::exit(1);
     }
