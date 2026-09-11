@@ -294,6 +294,17 @@ fn parse_value_init_expr(
             ));
         }
 
+        if is_word(tokens, *pos, "繰返")
+            || is_word(tokens, *pos, "。")
+            || is_word(tokens, *pos, "こと")
+        {
+            return Err(ParseError::new(
+                "条件分岐が「つぎに」で閉じられていません（「ならば」には「つぎに」が必要です）",
+                tokens,
+                *pos,
+            ));
+        }
+
         if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
             exprs.push(expr);
             continue;
@@ -600,6 +611,17 @@ fn parse_branch(
             ));
         }
 
+        if is_word(tokens, *pos, "繰返")
+            || is_word(tokens, *pos, "。")
+            || is_word(tokens, *pos, "こと")
+        {
+            return Err(ParseError::new(
+                "条件分岐が「つぎに」で閉じられていません（「ならば」には「つぎに」が必要です）",
+                tokens,
+                *pos,
+            ));
+        }
+
         if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
             exprs.push(expr);
             continue;
@@ -781,6 +803,13 @@ fn parse_single_atom(
         TokenKind::Word(w) if w == "繰返" => {
             return Err(ParseError::new(
                 "「繰返」に対応するループの開始（「ここから」または「回数指定」）がありません",
+                tokens,
+                *pos,
+            ));
+        }
+        TokenKind::Word(w) if w == "こと" => {
+            return Err(ParseError::new(
+                "「こと」は単独では使用できません（ワード定義を閉じる場合は「こと。」、条件分岐を閉じる場合は「つぎに」を使用してください）",
                 tokens,
                 *pos,
             ));
@@ -974,5 +1003,17 @@ mod tests {
     fn unclosed_definition_is_a_parse_error() {
         let tokens = tokenize("挨拶する とは\n「こんにちは」を　表示する").unwrap();
         assert!(parse(&tokens).is_err());
+    }
+
+    #[test]
+    fn branch_closed_with_koto_instead_of_tsugini_is_a_parse_error() {
+        let tokens = tokenize(
+            "テスト とは\n 1 0 等しい？ ならば\n 「はい」を表示\n こと\nこと。",
+        )
+        .unwrap();
+        let err = parse(&tokens).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("条件分岐が「つぎに」で閉じられていません"));
     }
 }
