@@ -501,3 +501,115 @@ fn adr0024_and_adr0032_hiragana_variable_and_quoted_identifier_e2e() {
     assert_eq!(sink3.borrow().contents(), "100\n");
 }
 
+#[test]
+fn comparison_words_equality_and_inequality() {
+    let source = "
+    10 10 等しい？ 表示する。
+    10 20 等しい？ 表示する。
+    10 20 異なる？ 表示する。
+    10 10 異なる？ 表示する。
+    10 20 違う？ 表示する。
+    10 10 違う？ 表示する。
+    「あ」 「あ」 等しい？ 表示する。
+    「あ」 「い」 異なる？ 表示する。
+    1 1 等しい？ 1 2 等しい？ 異なる？ 表示する。
+    1 1 等しい？ 1 1 等しい？ 違う？ 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+    assert_eq!(
+        sink.borrow().contents(),
+        "真\n偽\n真\n偽\n真\n偽\n真\n真\n真\n偽\n"
+    );
+}
+
+#[test]
+fn comparison_words_greater_and_less() {
+    let source = "
+    10 5 大きい？ 表示する。
+    5 10 大きい？ 表示する。
+    10 10 大きい？ 表示する。
+    10 5 超える？ 表示する。
+    5 10 超える？ 表示する。
+    5 10 小さい？ 表示する。
+    10 5 小さい？ 表示する。
+    10 10 小さい？ 表示する。
+    5 10 未満？ 表示する。
+    10 5 未満？ 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+    assert_eq!(
+        sink.borrow().contents(),
+        "真\n偽\n偽\n真\n偽\n真\n偽\n偽\n真\n偽\n"
+    );
+}
+
+#[test]
+fn comparison_words_greater_equal_and_less_equal() {
+    let source = "
+    10 5 以上？ 表示する。
+    10 10 以上？ 表示する。
+    5 10 以上？ 表示する。
+    5 10 以下？ 表示する。
+    10 10 以下？ 表示する。
+    10 5 以下？ 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+    assert_eq!(
+        sink.borrow().contents(),
+        "真\n真\n偽\n真\n真\n偽\n"
+    );
+}
+
+#[test]
+fn comparison_words_in_if_else_control_flow() {
+    let source = "
+判定 とは
+    複製 10 以上？ ならば
+        「10以上」を 表示する
+    そうでなければ
+        複製 0 超える？ ならば
+            「正の数」を 表示する
+        そうでなければ
+            「0以下」を 表示する
+        つぎに
+    つぎに
+    捨てる
+こと。
+
+15 判定。
+5 判定。
+-3 判定。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+    assert_eq!(
+        sink.borrow().contents(),
+        "10以上\n正の数\n0以下\n"
+    );
+}
+
+#[test]
+fn comparison_words_type_mismatch() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::String(Rc::from("hoge")));
+    interp.push_value(Value::Number(10));
+    let err = interp
+        .run_word("以上?")
+        .expect_err("数でない値の比較はエラーになるはず");
+    assert!(matches!(err, RuntimeError::TypeMismatch { .. }));
+
+    let mut interp2 = Interpreter::new();
+    interp2.push_value(Value::Number(10));
+    interp2.push_value(Value::Bool(true));
+    let err2 = interp2
+        .run_word("以下?")
+        .expect_err("数でない値の比較はエラーになるはず");
+    assert!(matches!(err2, RuntimeError::TypeMismatch { .. }));
+}

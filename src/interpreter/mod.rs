@@ -817,7 +817,28 @@ fn register_builtins(interp: &mut Interpreter) {
         Ok(())
     });
 
+    interp.register_native("異なる?", |interp| {
+        let b = require_concrete(interp.pop_value()?)?;
+        let a = require_concrete(interp.pop_value()?)?;
+        interp.push_value(Value::Bool(a != b));
+        Ok(())
+    });
+
+    interp.register_native("違う?", |interp| {
+        let b = require_concrete(interp.pop_value()?)?;
+        let a = require_concrete(interp.pop_value()?)?;
+        interp.push_value(Value::Bool(a != b));
+        Ok(())
+    });
+
     interp.register_native("大?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a > b));
+        Ok(())
+    });
+
+    interp.register_native("超える?", |interp| {
         let b = pop_number(interp)?;
         let a = pop_number(interp)?;
         interp.push_value(Value::Bool(a > b));
@@ -828,6 +849,27 @@ fn register_builtins(interp: &mut Interpreter) {
         let b = pop_number(interp)?;
         let a = pop_number(interp)?;
         interp.push_value(Value::Bool(a < b));
+        Ok(())
+    });
+
+    interp.register_native("未満?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a < b));
+        Ok(())
+    });
+
+    interp.register_native("以上?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a >= b));
+        Ok(())
+    });
+
+    interp.register_native("以下?", |interp| {
+        let b = pop_number(interp)?;
+        let a = pop_number(interp)?;
+        interp.push_value(Value::Bool(a <= b));
         Ok(())
     });
 
