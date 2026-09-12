@@ -887,6 +887,16 @@ fn register_builtins(interp: &mut Interpreter) {
         Ok(())
     });
 
+    interp.register_native("真", |interp| {
+        interp.push_value(Value::Bool(true));
+        Ok(())
+    });
+
+    interp.register_native("偽", |interp| {
+        interp.push_value(Value::Bool(false));
+        Ok(())
+    });
+
     interp.register_native("番目", |interp| {
         let index = pop_number(interp)?;
         let array = pop_array(interp)?;
