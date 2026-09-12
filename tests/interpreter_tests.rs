@@ -567,6 +567,22 @@ fn comparison_words_greater_equal_and_less_equal() {
 }
 
 #[test]
+fn true_and_false_literal_words_push_bool_onto_stack() {
+    let source = "
+    真 表示する。
+    偽 表示する。
+    真 真 かつ 表示する。
+    真 偽 かつ 表示する。
+    偽 偽 または 表示する。
+    偽 真 または 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+    assert_eq!(sink.borrow().contents(), "真\n偽\n真\n偽\n偽\n真\n");
+}
+
+#[test]
 fn comparison_words_in_if_else_control_flow() {
     let source = "
 判定 とは

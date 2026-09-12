@@ -108,7 +108,16 @@ fn adr0024_hiragana_word_particle_splitting() {
 #[test]
 fn adr0024_protected_keywords_are_not_split() {
     // 助詞と同じ文字列で終わる保護キーワードが誤分割されないこと。
-    for kw in ["ここから", "つぎに", "こと", "とは", "ならば", "そうでなければ", "さよなら"] {
+    for kw in [
+        "ここから",
+        "つぎに",
+        "こと",
+        "とは",
+        "ならば",
+        "そうでなければ",
+        "さよなら",
+        "または",
+    ] {
         let tokens = tokenize(kw).unwrap();
         assert_eq!(tokens.len(), 1);
         assert_eq!(tokens[0].kind, TokenKind::Word(kw.to_string()));
