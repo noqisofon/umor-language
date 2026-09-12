@@ -133,7 +133,12 @@ fn split_trailing_particle(raw: &str) -> Option<(&str, &str)> {
     for &p in PARTICLES {
         if raw.ends_with(p) && raw.len() > p.len() {
             let stem = &raw[..raw.len() - p.len()];
-            return Some((stem, p));
+            // 語幹はひらがな2文字以上でなければならない。
+            // 1文字の語幹（例: 「ほに」「わに」「かに」の「ほ」「わ」「か」）は
+            // 助詞切り出しではなく単語そのものの一部とみなす（デグレ防止・わに問題解決）。
+            if stem.chars().count() >= 2 {
+                return Some((stem, p));
+            }
         }
     }
     None

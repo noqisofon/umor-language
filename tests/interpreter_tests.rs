@@ -467,23 +467,37 @@ fn adr0028_buffer_sink_accumulates_display_output() {
 
 #[test]
 fn adr0024_and_adr0032_hiragana_variable_and_quoted_identifier_e2e() {
-    let source = "
-ほげ は 変数。
-42を ほげに 入れる。
-ほげを 読んで 表示する。
+    // 1. 純ひらがな変数（ほに）に助詞が膠着するケース（クォートなし）
+    let source1 = "
+ほに は 変数。
+42を ほにに 入れる。
+ほにを 読んで 表示する。
+";
+    let sink1 = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp1 = Interpreter::with_output(Box::new(sink1.clone()));
+    umor::run_source(&mut interp1, source1).expect("実行に失敗した");
+    assert_eq!(sink1.borrow().contents(), "42\n");
 
+    // 2. 以前の分かち書き（助詞の前に空白あり）の互換性維持
+    let source2 = "
+ほに は 変数。
+42を ほに に 入れる。
+ほに を 読んで 表示する。
+";
+    let sink2 = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp2 = Interpreter::with_output(Box::new(sink2.clone()));
+    umor::run_source(&mut interp2, source2).expect("実行に失敗した");
+    assert_eq!(sink2.borrow().contents(), "42\n");
+
+    // 3. クォート識別子（ADR-0032）
+    let source3 = "
 『わに』 は 変数。
 100を 『わに』に 入れる。
 『わに』を 読んで 表示する。
-
-『ほに』 は 変数。
-999を 『ほに』に 入れる。
-『ほに』を 読んで 表示する。
 ";
-    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
-    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
-    umor::run_source(&mut interp, source).expect("実行に失敗した");
-
-    assert_eq!(sink.borrow().contents(), "42\n100\n999\n");
+    let sink3 = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp3 = Interpreter::with_output(Box::new(sink3.clone()));
+    umor::run_source(&mut interp3, source3).expect("実行に失敗した");
+    assert_eq!(sink3.borrow().contents(), "100\n");
 }
 
