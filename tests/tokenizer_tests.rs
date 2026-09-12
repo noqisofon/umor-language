@@ -74,3 +74,74 @@ fn case6_unsegmented_long_word_stays_one_token() {
     assert_eq!(tokens.len(), 1);
     assert!(matches!(&tokens[0].kind, TokenKind::Word(_)));
 }
+
+#[test]
+fn adr0024_hiragana_word_particle_splitting() {
+    // 純ひらがな語に助詞が膠着した場合、語幹と助詞に分離される。
+    let tokens = tokenize("ほにに ほにを ほには ほにが ほにへ ほにと ほにで ほにも ほにや ほにから ほにまで ほにより").unwrap();
+    let words: Vec<&str> = tokens
+        .iter()
+        .filter_map(|t| match &t.kind {
+            TokenKind::Word(w) => Some(w.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        words,
+        vec![
+            "ほに", "に",
+            "ほに", "を",
+            "ほに", "は",
+            "ほに", "が",
+            "ほに", "へ",
+            "ほに", "と",
+            "ほに", "で",
+            "ほに", "も",
+            "ほに", "や",
+            "ほに", "から",
+            "ほに", "まで",
+            "ほに", "より",
+        ]
+    );
+}
+
+#[test]
+fn adr0024_protected_keywords_are_not_split() {
+    // 助詞と同じ文字列で終わる保護キーワードが誤分割されないこと。
+    for kw in ["ここから", "つぎに", "こと", "とは", "ならば", "そうでなければ", "さよなら"] {
+        let tokens = tokenize(kw).unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, TokenKind::Word(kw.to_string()));
+    }
+}
+
+#[test]
+fn adr0032_quoted_identifiers_with_kagi_and_curly_quotes() {
+    // 二重カギ括弧『』によるクォート（ADR-0032）
+    let tokens = tokenize("『わに』に 『ほげ』を").unwrap();
+    let words: Vec<&str> = tokens
+        .iter()
+        .filter_map(|t| match &t.kind {
+            TokenKind::Word(w) => Some(w.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(words, vec!["わに", "に", "ほげ", "を"]);
+
+    // 全角二重カーリー引用符“”によるクォート（ADR-0032）
+    let tokens = tokenize("“わに”に “ほげ”を").unwrap();
+    let words: Vec<&str> = tokens
+        .iter()
+        .filter_map(|t| match &t.kind {
+            TokenKind::Word(w) => Some(w.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(words, vec!["わに", "に", "ほげ", "を"]);
+
+    // 単体のクォート識別子は通常の識別子と一致すること
+    let tokens = tokenize("『わに』").unwrap();
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, TokenKind::Word("わに".to_string()));
+}
+

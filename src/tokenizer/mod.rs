@@ -91,6 +91,54 @@ fn contains_digit(chars: &[char]) -> bool {
     chars.iter().any(|&c| is_digit_char(c))
 }
 
+/// 助詞のリスト（最長一致のために複数文字の助詞を先に配置）。ADR-0024。
+const PARTICLES: &[&str] = &[
+    "から", "まで", "より", // 2文字
+    "は", "が", "を", "に", "へ", "と", "で", "も", "や", // 1文字
+];
+
+/// 助詞と同じ文字列で終わるが、助詞切り出しを行ってはならない予約キーワード・保護語。
+const PROTECTED_KEYWORDS: &[&str] = &[
+    "とは",
+    "こと",
+    "ここから",
+    "つぎに",
+    "ならば",
+    "そうでなければ",
+    "さもなければ",
+    "さよなら",
+];
+
+/// 単語が純ひらがな語であり、既知の助詞で終わっているか判定し、もし終わっていれば `(語幹, 助詞)` を返す。
+///
+/// 送り仮名正規化（漢字語幹の抽出）の対象外となる純ひらがな語（例: `ほにに`）に対して
+/// 2段目のパイプラインとして助詞を切り出す（ADR-0024）。
+/// 単語全体が保護キーワードである場合、終端語「こと」「とは」で終わる場合、
+/// または単語全体が助詞そのものである場合は `None` を返す。
+fn split_trailing_particle(raw: &str) -> Option<(&str, &str)> {
+    if PROTECTED_KEYWORDS.contains(&raw) {
+        return None;
+    }
+    // 全文字がひらがな（＋長音記号）の場合のみ助詞切り出しの対象とする
+    if !raw.chars().all(|c| is_hiragana(c) || c == 'ー') {
+        return None;
+    }
+    // 構造キーワード「こと」「とは」で終わる語（例: 「すること」）は助詞切り出しを行わない
+    if raw != "こと" && raw.ends_with("こと") {
+        return None;
+    }
+    if raw != "とは" && raw.ends_with("とは") {
+        return None;
+    }
+    for &p in PARTICLES {
+        if raw.ends_with(p) && raw.len() > p.len() {
+            let stem = &raw[..raw.len() - p.len()];
+            return Some((stem, p));
+        }
+    }
+    None
+}
+
 /// 生トークン（区切り文字を含まない1塊の文字列）を分類し、トークンとして積む。
 ///
 /// 先頭が数値パターンで構成される場合、数値に空白なしで隣接する残り部分
@@ -106,6 +154,22 @@ fn classify_and_push(raw: &str, line: usize, tokens: &mut Vec<Token>) {
         tokens.push(Token {
             kind: TokenKind::NumberLiteral(num_part),
             raw: raw.to_string(),
+            line,
+        });
+        return;
+    }
+
+    // ADR-0024: 助詞切り出し機構。既知の助詞で終わる語幹から助詞を独立トークンとして分離する。
+    if let Some((stem, particle)) = split_trailing_particle(raw) {
+        let normalized_stem = normalize_word(stem);
+        tokens.push(Token {
+            kind: TokenKind::Word(normalized_stem),
+            raw: stem.to_string(),
+            line,
+        });
+        tokens.push(Token {
+            kind: TokenKind::Word(particle.to_string()),
+            raw: particle.to_string(),
             line,
         });
         return;
@@ -348,6 +412,38 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
                 line,
             });
             i += 1;
+            buf_start_line = line;
+            continue;
+        }
+
+        // ワード名クォート: 『...』 または “...” (ADR-0032)
+        if c == '『' || c == '“' || c == '\u{201C}' {
+            flush_word(&mut buf, buf_start_line, &mut tokens);
+            let start_line = line;
+            let close = if c == '『' { '』' } else { '”' };
+            let open_quote_str = c.to_string();
+            let mut content = String::new();
+            i += 1;
+            while i < n && chars[i] != close && (close != '”' || chars[i] != '“') {
+                if chars[i] == '\n' {
+                    line += 1;
+                }
+                content.push(chars[i]);
+                i += 1;
+            }
+            let raw = if i < n {
+                let close_char = chars[i];
+                i += 1;
+                format!("{open_quote_str}{content}{close_char}")
+            } else {
+                format!("{open_quote_str}{content}")
+            };
+            let normalized = normalize_word(&content);
+            tokens.push(Token {
+                kind: TokenKind::Word(normalized),
+                raw,
+                line: start_line,
+            });
             buf_start_line = line;
             continue;
         }

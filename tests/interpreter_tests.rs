@@ -464,3 +464,26 @@ fn adr0028_buffer_sink_accumulates_display_output() {
 
     assert_eq!(sink.borrow().contents(), "こんにちは\n世界\n");
 }
+
+#[test]
+fn adr0024_and_adr0032_hiragana_variable_and_quoted_identifier_e2e() {
+    let source = "
+ほげ は 変数。
+42を ほげに 入れる。
+ほげを 読んで 表示する。
+
+『わに』 は 変数。
+100を 『わに』に 入れる。
+『わに』を 読んで 表示する。
+
+『ほに』 は 変数。
+999を 『ほに』に 入れる。
+『ほに』を 読んで 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に失敗した");
+
+    assert_eq!(sink.borrow().contents(), "42\n100\n999\n");
+}
+
