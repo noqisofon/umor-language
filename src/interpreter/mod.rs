@@ -947,9 +947,9 @@ fn register_builtins(interp: &mut Interpreter) {
     // 添字アクセス糖衣構文（`（）`）の脱糖衣で挿入される連結詞。単体では何もしない。
     interp.register_native("の", |_interp| Ok(()));
 
-    // 助詞。文法上あちこちに現れるが、実行時には何もしない。
+    // 助詞。文法上あちこちに現れるが、実行時には何もしない（ADR-0024）。
     for particle in [
-        "を", "に", "と", "で", "が", "へ", "も", "から", "まで", "や",
+        "を", "に", "と", "で", "が", "へ", "も", "から", "まで", "より", "は", "や",
     ] {
         interp.register_native(particle, |_interp| Ok(()));
     }

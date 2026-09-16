@@ -629,3 +629,30 @@ fn comparison_words_type_mismatch() {
         .expect_err("数でない値の比較はエラーになるはず");
     assert!(matches!(err2, RuntimeError::TypeMismatch { .. }));
 }
+
+#[test]
+fn adr0024_all_twelve_particles_execute_as_nops() {
+    // ADR-0024で定義された全12個の助詞がNOPとして登録されており、
+    // スタックに影響を与えず未定義ワードエラーにもならないことを確認する。
+    let source = "
+    42 を に と で が へ も から まで より は や 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("全助詞の実行に成功するはず");
+    assert_eq!(sink.borrow().contents(), "42\n");
+}
+
+#[test]
+fn adr0024_yori_and_wa_particles_with_hiragana_variable() {
+    // 純ひらがな変数に対する「より」の助詞膠着切り出しと、助詞「は」「より」のNOP実行
+    let source = "
+あたい は 変数。
+10 を あたいに 入れる。
+あたいより 読んで 20 小さい？ は 表示する。
+";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("実行に成功するはず");
+    assert_eq!(sink.borrow().contents(), "真\n");
+}
