@@ -299,7 +299,7 @@ fn parse_value_init_expr(
             || is_word(tokens, *pos, "こと")
         {
             return Err(ParseError::new(
-                "条件分岐が「つぎに」で閉じられていません（「ならば」には「つぎに」が必要です）",
+                "可変値/定数値の宣言が「初期値」で閉じられていません（宣言には「初期値」が必要です）",
                 tokens,
                 *pos,
             ));

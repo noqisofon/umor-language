@@ -140,3 +140,13 @@ fn value_is_pushed_as_a_plain_value_not_a_var_ref() {
 
     assert_eq!(interp.pop_value().unwrap(), Value::Number(15));
 }
+
+#[test]
+fn unclosed_value_decl_reports_correct_error_message() {
+    let src = "りんご は 可変値で 10。";
+    let mut interp = Interpreter::new();
+    let err = run_source(&mut interp, src).expect_err("「初期値」がない場合は構文エラーになるはず");
+    assert!(err
+        .to_string()
+        .contains("可変値/定数値の宣言が「初期値」で閉じられていません"));
+}
