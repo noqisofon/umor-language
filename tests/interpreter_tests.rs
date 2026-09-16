@@ -656,3 +656,52 @@ fn adr0024_yori_and_wa_particles_with_hiragana_variable() {
     umor::run_source(&mut interp, source).expect("実行に成功するはず");
     assert_eq!(sink.borrow().contents(), "真\n");
 }
+
+#[test]
+fn division_by_zero_is_a_runtime_error() {
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(10));
+    interp.push_value(Value::Number(0));
+    let err = interp.run_word("割").expect_err("0での除算はエラーになるはず");
+    assert_eq!(err, RuntimeError::DivisionByZero);
+}
+
+#[test]
+fn division_and_remainder_overflow_on_min_divided_by_minus_one() {
+    // i64::MIN / -1 および i64::MIN % -1 でパニックせずOverflowエラーになること
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(i64::MIN));
+    interp.push_value(Value::Number(-1));
+    let err = interp.run_word("割").expect_err("i64::MIN / -1 はオーバーフローになるはず");
+    assert_eq!(err, RuntimeError::Overflow);
+
+    let mut interp2 = Interpreter::new();
+    interp2.push_value(Value::Number(i64::MIN));
+    interp2.push_value(Value::Number(-1));
+    let err2 = interp2.run_word("余").expect_err("i64::MIN % -1 はオーバーフローになるはず");
+    assert_eq!(err2, RuntimeError::Overflow);
+}
+
+#[test]
+fn arithmetic_overflow_detection_for_add_sub_mul() {
+    // 加算オーバーフロー
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(i64::MAX));
+    interp.push_value(Value::Number(1));
+    let err = interp.run_word("加").expect_err("加算オーバーフロー");
+    assert_eq!(err, RuntimeError::Overflow);
+
+    // 減算アンダーフロー
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(i64::MIN));
+    interp.push_value(Value::Number(1));
+    let err = interp.run_word("引").expect_err("減算アンダーフロー");
+    assert_eq!(err, RuntimeError::Overflow);
+
+    // 乗算オーバーフロー
+    let mut interp = Interpreter::new();
+    interp.push_value(Value::Number(i64::MAX));
+    interp.push_value(Value::Number(2));
+    let err = interp.run_word("掛").expect_err("乗算オーバーフロー");
+    assert_eq!(err, RuntimeError::Overflow);
+}

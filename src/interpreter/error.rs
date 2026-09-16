@@ -13,6 +13,8 @@ pub enum RuntimeError {
     TypeMismatch { expected: String, found: String },
     /// 0での除算。
     DivisionByZero,
+    /// 算術演算でのオーバーフロー。
+    Overflow,
     /// 配列の添字が範囲外。
     IndexOutOfBounds { index: i64, length: usize },
     /// 未初期化の変数を読み取ろうとした。
@@ -50,6 +52,7 @@ impl fmt::Display for RuntimeError {
                 "型が一致しません（期待: 「{expected}」, 実際: 「{found}」）"
             ),
             RuntimeError::DivisionByZero => write!(f, "0で除算しようとしました"),
+            RuntimeError::Overflow => write!(f, "数値演算でオーバーフローが発生しました"),
             RuntimeError::IndexOutOfBounds { index, length } => {
                 write!(f, "添字が範囲外です（添字: {index}, 配列の長さ: {length}）")
             }

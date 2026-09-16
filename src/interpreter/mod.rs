@@ -772,21 +772,24 @@ fn register_builtins(interp: &mut Interpreter) {
     interp.register_native("加", |interp| {
         let b = pop_number(interp)?;
         let a = pop_number(interp)?;
-        interp.push_value(Value::Number(a + b));
+        let res = a.checked_add(b).ok_or(RuntimeError::Overflow)?;
+        interp.push_value(Value::Number(res));
         Ok(())
     });
 
     interp.register_native("引", |interp| {
         let b = pop_number(interp)?;
         let a = pop_number(interp)?;
-        interp.push_value(Value::Number(a - b));
+        let res = a.checked_sub(b).ok_or(RuntimeError::Overflow)?;
+        interp.push_value(Value::Number(res));
         Ok(())
     });
 
     interp.register_native("掛", |interp| {
         let b = pop_number(interp)?;
         let a = pop_number(interp)?;
-        interp.push_value(Value::Number(a * b));
+        let res = a.checked_mul(b).ok_or(RuntimeError::Overflow)?;
+        interp.push_value(Value::Number(res));
         Ok(())
     });
 
@@ -796,7 +799,8 @@ fn register_builtins(interp: &mut Interpreter) {
         if b == 0 {
             return Err(RuntimeError::DivisionByZero);
         }
-        interp.push_value(Value::Number(a / b));
+        let res = a.checked_div(b).ok_or(RuntimeError::Overflow)?;
+        interp.push_value(Value::Number(res));
         Ok(())
     });
 
@@ -806,7 +810,8 @@ fn register_builtins(interp: &mut Interpreter) {
         if b == 0 {
             return Err(RuntimeError::DivisionByZero);
         }
-        interp.push_value(Value::Number(a % b));
+        let res = a.checked_rem(b).ok_or(RuntimeError::Overflow)?;
+        interp.push_value(Value::Number(res));
         Ok(())
     });
 
