@@ -995,8 +995,13 @@ fn register_builtins(interp: &mut Interpreter) {
         if interp.loaded_paths.contains(&normalized) {
             return Ok(());
         }
-        include_file(interp, &path)?;
-        interp.loaded_paths.insert(normalized);
+        // ADR-0022: 循環読み込み（相互参照）による無限再帰を防ぐため、
+        // 評価に入る直前に読み込み済み集合へ登録する。
+        interp.loaded_paths.insert(normalized.clone());
+        if let Err(e) = include_file(interp, &path) {
+            interp.loaded_paths.remove(&normalized);
+            return Err(e);
+        }
         Ok(())
     });
 }

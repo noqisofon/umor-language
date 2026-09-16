@@ -174,3 +174,53 @@ fn hitsuyou_still_shares_state_when_it_actually_loads() {
 
     assert_eq!(*log.borrow(), vec!["こんにちは".to_string()]);
 }
+
+#[test]
+fn hitsuyou_handles_mutual_recursive_requires_without_infinite_loop() {
+    // A が B を「必要」とし、B が A を「必要」とする相互参照があっても
+    // 無限再帰（スタックオーバーフロー）にならず正常に読み込まれること。
+    let file_b = TempUmorFile::in_temp_dir("");
+    let file_a = TempUmorFile::in_temp_dir(&format!(
+        "「{b_path}」が　必要。\n「A完了」を　表示する。",
+        b_path = file_b.path_str()
+    ));
+    fs::write(
+        &file_b.path,
+        format!(
+            "「{a_path}」が　必要。\n「B完了」を　表示する。",
+            a_path = file_a.path_str()
+        ),
+    )
+    .expect("file_bの更新に失敗した");
+
+    let mut interp = Interpreter::new();
+    let log = Rc::new(RefCell::new(Vec::new()));
+    install_logging_display(&mut interp, log.clone());
+
+    let src = format!("「{a_path}」が　必要。", a_path = file_a.path_str());
+    run_source(&mut interp, &src).expect("循環読み込みが正常に解決されるはず");
+
+    assert_eq!(
+        *log.borrow(),
+        vec!["B完了".to_string(), "A完了".to_string()]
+    );
+}
+
+#[test]
+fn hitsuyou_rolls_back_loaded_paths_on_error() {
+    // 読み込みに失敗したファイルは loaded_paths からロールバックされ、
+    // 修正後に再度「必要」を呼んだ際に再試行できること。
+    let file = TempUmorFile::in_temp_dir("存在しないワード。");
+    let mut interp = Interpreter::new();
+
+    let src = format!("「{path}」が　必要。", path = file.path_str());
+    assert!(run_source(&mut interp, &src).is_err());
+
+    // ファイル内容を正しいものに修正
+    fs::write(&file.path, "「成功」を　表示する。").expect("書き込みに失敗した");
+    let log = Rc::new(RefCell::new(Vec::new()));
+    install_logging_display(&mut interp, log.clone());
+
+    run_source(&mut interp, &src).expect("ロールバック後に再試行して成功するはず");
+    assert_eq!(*log.borrow(), vec!["成功".to_string()]);
+}
