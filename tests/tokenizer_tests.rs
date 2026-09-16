@@ -154,3 +154,20 @@ fn adr0032_quoted_identifiers_with_kagi_and_curly_quotes() {
     assert_eq!(tokens[0].kind, TokenKind::Word("わに".to_string()));
 }
 
+#[test]
+fn unclosed_literals_return_lex_error() {
+    assert!(tokenize("「閉じられていない文字列").is_err());
+    assert!(tokenize("\"閉じられていない半角文字列").is_err());
+    assert!(tokenize("『閉じられていないクォート識別子").is_err());
+    assert!(tokenize("“閉じられていない全角クォート識別子").is_err());
+}
+
+#[test]
+fn char_literals_tokenize_correctly() {
+    let tokens = tokenize("'あ' 'b' ＇c＇").unwrap();
+    assert_eq!(tokens.len(), 3);
+    assert_eq!(tokens[0].kind, TokenKind::CharLiteral('あ'));
+    assert_eq!(tokens[1].kind, TokenKind::CharLiteral('b'));
+    assert_eq!(tokens[2].kind, TokenKind::CharLiteral('c'));
+}
+

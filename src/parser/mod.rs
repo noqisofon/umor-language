@@ -102,49 +102,7 @@ fn parse_top_level_expr_sequence(
             ));
         }
 
-        if let Some(expr) = try_value_decl(tokens, pos, false)? {
-            exprs.push(expr);
-            continue;
-        }
-        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
-            exprs.push(expr);
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ここから") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, false)?;
-            exprs.push(Expr::InfiniteLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "回数指定") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, false)?;
-            exprs.push(Expr::CountedLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ならば") {
-            *pos += 1;
-            let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos, false)?;
-            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
-                *pos += 1;
-                Some(parse_branch(tokens, pos, false)?)
-            } else {
-                None
-            };
-            expect_word(tokens, pos, "つぎに")?;
-            exprs.push(Expr::IfElse {
-                cond,
-                then_branch,
-                else_branch,
-            });
-            continue;
-        }
-
-        parse_atom_with_subscripts(tokens, pos, &mut exprs, false)?;
+        parse_expr_step(tokens, pos, &mut exprs, false)?;
     }
     Ok(exprs)
 }
@@ -305,49 +263,7 @@ fn parse_value_init_expr(
             ));
         }
 
-        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
-            exprs.push(expr);
-            continue;
-        }
-        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
-            exprs.push(expr);
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ここから") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::InfiniteLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "回数指定") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::CountedLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ならば") {
-            *pos += 1;
-            let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos, in_definition)?;
-            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
-                *pos += 1;
-                Some(parse_branch(tokens, pos, in_definition)?)
-            } else {
-                None
-            };
-            expect_word(tokens, pos, "つぎに")?;
-            exprs.push(Expr::IfElse {
-                cond,
-                then_branch,
-                else_branch,
-            });
-            continue;
-        }
-
-        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
+        parse_expr_step(tokens, pos, &mut exprs, in_definition)?;
     }
     Ok(exprs)
 }
@@ -547,40 +463,7 @@ fn parse_definition(
             body_started = true;
         }
 
-        if is_word(tokens, *pos, "ここから") {
-            *pos += 1;
-            let loop_body = parse_loop_body(tokens, pos, true)?;
-            body.push(Expr::InfiniteLoop { body: loop_body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "回数指定") {
-            *pos += 1;
-            let loop_body = parse_loop_body(tokens, pos, true)?;
-            body.push(Expr::CountedLoop { body: loop_body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ならば") {
-            *pos += 1;
-            let cond = std::mem::take(&mut body);
-            let then_branch = parse_branch(tokens, pos, true)?;
-            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
-                *pos += 1;
-                Some(parse_branch(tokens, pos, true)?)
-            } else {
-                None
-            };
-            expect_word(tokens, pos, "つぎに")?;
-            body.push(Expr::IfElse {
-                cond,
-                then_branch,
-                else_branch,
-            });
-            continue;
-        }
-
-        parse_atom_with_subscripts(tokens, pos, &mut body, true)?;
+        parse_control_or_atom(tokens, pos, &mut body, true)?;
     }
 
     Ok(Definition {
@@ -622,49 +505,7 @@ fn parse_branch(
             ));
         }
 
-        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
-            exprs.push(expr);
-            continue;
-        }
-        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
-            exprs.push(expr);
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ここから") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::InfiniteLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "回数指定") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::CountedLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ならば") {
-            *pos += 1;
-            let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos, in_definition)?;
-            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
-                *pos += 1;
-                Some(parse_branch(tokens, pos, in_definition)?)
-            } else {
-                None
-            };
-            expect_word(tokens, pos, "つぎに")?;
-            exprs.push(Expr::IfElse {
-                cond,
-                then_branch,
-                else_branch,
-            });
-            continue;
-        }
-
-        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
+        parse_expr_step(tokens, pos, &mut exprs, in_definition)?;
     }
     Ok(exprs)
 }
@@ -725,50 +566,69 @@ fn parse_loop_body(
             ));
         }
 
-        if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
-            exprs.push(expr);
-            continue;
-        }
-        if let Some(expr) = try_assign(tokens, pos, &mut exprs) {
-            exprs.push(expr);
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ここから") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::InfiniteLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "回数指定") {
-            *pos += 1;
-            let body = parse_loop_body(tokens, pos, in_definition)?;
-            exprs.push(Expr::CountedLoop { body });
-            continue;
-        }
-
-        if is_word(tokens, *pos, "ならば") {
-            *pos += 1;
-            let cond = std::mem::take(&mut exprs);
-            let then_branch = parse_branch(tokens, pos, in_definition)?;
-            let else_branch = if is_word(tokens, *pos, "そうでなければ") {
-                *pos += 1;
-                Some(parse_branch(tokens, pos, in_definition)?)
-            } else {
-                None
-            };
-            expect_word(tokens, pos, "つぎに")?;
-            exprs.push(Expr::IfElse {
-                cond,
-                then_branch,
-                else_branch,
-            });
-            continue;
-        }
-
-        parse_atom_with_subscripts(tokens, pos, &mut exprs, in_definition)?;
+        parse_expr_step(tokens, pos, &mut exprs, in_definition)?;
     }
+}
+
+/// 式列の1ステップ（制御構文：ループ、条件分岐、または原子式＋添字アクセス）を解析して `exprs` に追加する。
+fn parse_control_or_atom(
+    tokens: &[Token],
+    pos: &mut usize,
+    exprs: &mut Vec<Expr>,
+    in_definition: bool,
+) -> Result<(), ParseError> {
+    if is_word(tokens, *pos, "ここから") {
+        *pos += 1;
+        let body = parse_loop_body(tokens, pos, in_definition)?;
+        exprs.push(Expr::InfiniteLoop { body });
+        return Ok(());
+    }
+
+    if is_word(tokens, *pos, "回数指定") {
+        *pos += 1;
+        let body = parse_loop_body(tokens, pos, in_definition)?;
+        exprs.push(Expr::CountedLoop { body });
+        return Ok(());
+    }
+
+    if is_word(tokens, *pos, "ならば") {
+        *pos += 1;
+        let cond = std::mem::take(exprs);
+        let then_branch = parse_branch(tokens, pos, in_definition)?;
+        let else_branch = if is_word(tokens, *pos, "そうでなければ") {
+            *pos += 1;
+            Some(parse_branch(tokens, pos, in_definition)?)
+        } else {
+            None
+        };
+        expect_word(tokens, pos, "つぎに")?;
+        exprs.push(Expr::IfElse {
+            cond,
+            then_branch,
+            else_branch,
+        });
+        return Ok(());
+    }
+
+    parse_atom_with_subscripts(tokens, pos, exprs, in_definition)
+}
+
+/// 式列の1ステップ（可変値/定数値宣言、代入、制御構文、または原子式）を解析して `exprs` に追加する。
+fn parse_expr_step(
+    tokens: &[Token],
+    pos: &mut usize,
+    exprs: &mut Vec<Expr>,
+    in_definition: bool,
+) -> Result<(), ParseError> {
+    if let Some(expr) = try_value_decl(tokens, pos, in_definition)? {
+        exprs.push(expr);
+        return Ok(());
+    }
+    if let Some(expr) = try_assign(tokens, pos, exprs) {
+        exprs.push(expr);
+        return Ok(());
+    }
+    parse_control_or_atom(tokens, pos, exprs, in_definition)
 }
 
 fn parse_single_atom(
@@ -817,7 +677,7 @@ fn parse_single_atom(
         TokenKind::Word(w) => Expr::WordCall(w.clone()),
         TokenKind::NumberLiteral(s) => Expr::NumberLiteral(parse_number_literal(s, tokens, *pos)?),
         TokenKind::StringLiteral(s) => Expr::StringLiteral(s.clone()),
-        TokenKind::CharLiteral(c) => Expr::WordCall(format!("'{c}'")),
+        TokenKind::CharLiteral(c) => Expr::CharLiteral(*c),
         TokenKind::OpenParen | TokenKind::CloseParen => {
             return Err(ParseError::new(
                 "ここでは「（」「）」は使用できません（直前に添字アクセスの対象となる式がありません）",

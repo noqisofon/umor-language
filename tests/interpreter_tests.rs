@@ -705,3 +705,13 @@ fn arithmetic_overflow_detection_for_add_sub_mul() {
     let err = interp.run_word("掛").expect_err("乗算オーバーフロー");
     assert_eq!(err, RuntimeError::Overflow);
 }
+
+#[test]
+fn char_literal_evaluates_to_single_char_string() {
+    let source = "'あ' 表示する。 'B' 表示する。 ＇C＇ 表示する。";
+    let sink = Rc::new(RefCell::new(umor::BufferSink::new()));
+    let mut interp = Interpreter::with_output(Box::new(sink.clone()));
+    umor::run_source(&mut interp, source).expect("文字リテラルの実行に成功するはず");
+    assert_eq!(sink.borrow().contents(), "あ\nB\nC\n");
+}
+

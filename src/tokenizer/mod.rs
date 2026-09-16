@@ -425,6 +425,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
         // ワード名クォート: 『...』 または “...” (ADR-0032)
         if c == '『' || c == '“' || c == '\u{201C}' {
             flush_word(&mut buf, buf_start_line, &mut tokens);
+            let quote_start = i;
             let start_line = line;
             let close = if c == '『' { '』' } else { '”' };
             let open_quote_str = c.to_string();
@@ -437,13 +438,17 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
                 content.push(chars[i]);
                 i += 1;
             }
-            let raw = if i < n {
-                let close_char = chars[i];
-                i += 1;
-                format!("{open_quote_str}{content}{close_char}")
-            } else {
-                format!("{open_quote_str}{content}")
-            };
+            if i >= n || chars[i] != close {
+                let (err_line, err_col) = line_col_at(&chars, quote_start);
+                return Err(LexError {
+                    message: "クォート識別子が閉じられていません".to_string(),
+                    line: err_line,
+                    column: err_col,
+                });
+            }
+            let close_char = chars[i];
+            i += 1;
+            let raw = format!("{open_quote_str}{content}{close_char}");
             let normalized = normalize_word(&content);
             tokens.push(Token {
                 kind: TokenKind::Word(normalized),
@@ -457,6 +462,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
         // 文字列リテラル: 「...」
         if c == '「' {
             flush_word(&mut buf, buf_start_line, &mut tokens);
+            let quote_start = i;
             let start_line = line;
             let mut content = String::new();
             i += 1;
@@ -467,10 +473,16 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
                 content.push(chars[i]);
                 i += 1;
             }
-            let raw = format!("「{}」", content);
-            if i < n {
-                i += 1;
+            if i >= n {
+                let (err_line, err_col) = line_col_at(&chars, quote_start);
+                return Err(LexError {
+                    message: "文字列リテラルが閉じられていません".to_string(),
+                    line: err_line,
+                    column: err_col,
+                });
             }
+            i += 1;
+            let raw = format!("「{}」", content);
             tokens.push(Token {
                 kind: TokenKind::StringLiteral(content),
                 raw,
@@ -483,6 +495,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
         // 文字列リテラル: "..." または ＂...＂
         if c == '"' || c == '\u{FF02}' {
             flush_word(&mut buf, buf_start_line, &mut tokens);
+            let quote_start = i;
             let start_line = line;
             let quote = c;
             let mut content = String::new();
@@ -494,10 +507,16 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, LexError> {
                 content.push(chars[i]);
                 i += 1;
             }
-            let raw = format!("{quote}{content}{quote}");
-            if i < n {
-                i += 1;
+            if i >= n {
+                let (err_line, err_col) = line_col_at(&chars, quote_start);
+                return Err(LexError {
+                    message: "文字列リテラルが閉じられていません".to_string(),
+                    line: err_line,
+                    column: err_col,
+                });
             }
+            i += 1;
+            let raw = format!("{quote}{content}{quote}");
             tokens.push(Token {
                 kind: TokenKind::StringLiteral(content),
                 raw,

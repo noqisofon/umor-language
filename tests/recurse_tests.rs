@@ -138,3 +138,31 @@ fn scope_check_ignores_self_recurse_node() {
     );
     assert_eq!(check_scopes(&program), Ok(()));
 }
+
+/// ADR-0008: 局所処理単語の内部から親ワードと同名のワードを呼び出した場合、
+/// 先祖フレームの自己言及境界を正しく遡って旧世代のワードを呼び出せること。
+#[test]
+fn adr0008_local_word_calling_parent_name_resolves_to_prior_generation() {
+    let program = parse_src(
+        "挨拶 とは、「こんにちは」と 表示する こと。\n\
+         挨拶 とは\n\
+             小挨拶 とは\n\
+                 挨拶する\n\
+             本体 とは\n\
+                 「やあ」と 表示して 小挨拶する こと。",
+    );
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+    let mut interp = Interpreter::new();
+    install_logging_display(&mut interp, log.clone());
+    interp.load_program(&program);
+
+    interp
+        .run_word("挨拶")
+        .expect("局所処理単語からの親同名ワード呼び出しで無限再帰にならないこと");
+
+    assert_eq!(
+        *log.borrow(),
+        vec!["やあ".to_string(), "こんにちは".to_string()]
+    );
+}
+

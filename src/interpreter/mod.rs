@@ -370,6 +370,10 @@ impl Interpreter {
                 self.push_value(Value::String(Rc::from(s.as_str())));
                 Ok(())
             }
+            Expr::CharLiteral(c) => {
+                self.push_value(Value::String(Rc::from(c.to_string())));
+                Ok(())
+            }
             Expr::SelfRecurse => {
                 // ADR-0009: パーサーが、どの定義本体にも属さない文脈での
                 // `再帰`を構文エラーとして弾いているため、実行時にここへ
@@ -427,14 +431,9 @@ impl Interpreter {
         }
     }
 
-    /// `WordCall(name)`の実行本体。文字リテラルの脱糖衣、変数の読み取り、
-    /// 局所処理単語・ユーザー定義ワード・基本ワードの呼び出しを順に試す。
+    /// `WordCall(name)`の実行本体。変数の読み取り、局所処理単語・ユーザー定義ワード・
+    /// 基本ワードの呼び出しを順に試す。
     fn dispatch(&mut self, name: &str) -> Result<(), RuntimeError> {
-        if let Some(content) = strip_char_literal(name) {
-            self.push_value(Value::String(Rc::from(content)));
-            return Ok(());
-        }
-
         if name == "回数" {
             if let Some(&i) = self.counted_loop_stack.last() {
                 self.push_value(Value::Number(i));
@@ -466,17 +465,23 @@ impl Interpreter {
         }
 
         // ADR-0008: 名前解決は既定では最新の世代（末尾）から行うが、現在
-        // 実行中のワード自身と同じ名前を呼んだ場合（自己言及的な再定義
-        // イディオム）は、このワードが辞書に追加される前の世代までに
-        // 限定する（＝自分自身の世代は候補から除外する）。
-        let self_ref = self
+        // 実行中の定義（またはその局所処理単語等の配下）から自身と同じ名前を
+        // 呼んだ場合（自己言及的な再定義イディオム）は、このワードが辞書に
+        // 追加される前の世代までに限定する（＝自分自身の世代は候補から除外する）。
+        let cutoff = self
             .call_stack
-            .last()
-            .and_then(|frame| frame.self_ref.clone());
-        let cutoff = match &self_ref {
-            Some((self_name, generation)) if self_name.as_ref() == name => *generation,
-            _ => self.dictionary.get(name).map(Vec::len).unwrap_or(0),
-        };
+            .iter()
+            .rev()
+            .find_map(|frame| {
+                frame.self_ref.as_ref().and_then(|(self_name, generation)| {
+                    if self_name.as_ref() == name {
+                        Some(*generation)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or_else(|| self.dictionary.get(name).map(Vec::len).unwrap_or(0));
         if cutoff == 0 {
             return Err(RuntimeError::UndefinedWord(name.to_string()));
         }
@@ -543,15 +548,6 @@ impl Default for Interpreter {
     }
 }
 
-/// `'X'`文字リテラルの脱糖衣形から中身の1文字を取り出す。
-fn strip_char_literal(name: &str) -> Option<&str> {
-    let inner = name.strip_prefix('\'').and_then(|s| s.strip_suffix('\''))?;
-    if inner.chars().count() == 1 {
-        Some(inner)
-    } else {
-        None
-    }
-}
 
 fn map_break_outside_loop(err: RuntimeError) -> RuntimeError {
     if err == RuntimeError::Break {

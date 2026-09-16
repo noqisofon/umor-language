@@ -57,6 +57,8 @@ pub enum Expr {
     NumberLiteral(i64),
     /// 文字列リテラル（鍵括弧「...」や二重引用符 "..."）。
     StringLiteral(String),
+    /// 文字リテラル（'X' や ＇X＇）。ADR-0012。
+    CharLiteral(char),
     /// `＜条件＞ ならば ＜then節＞ [そうでなければ ＜else節＞] つぎに`
     IfElse {
         cond: Vec<Expr>,
