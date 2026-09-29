@@ -461,27 +461,27 @@ impl Interpreter {
             .as_ref()
             .and_then(|locals| locals.get(name).cloned())
         {
-            return self.call(name, local_def, current_locals, None);
+            // 局所処理単語は定義本体の一部なので、外側のADR-0008世代境界を引き継ぐ。
+            let inherited = self
+                .call_stack
+                .last()
+                .and_then(|frame| frame.self_ref.clone());
+            return self.call(name, local_def, current_locals, inherited);
         }
 
         // ADR-0008: 名前解決は既定では最新の世代（末尾）から行うが、現在
-        // 実行中の定義（またはその局所処理単語等の配下）から自身と同じ名前を
-        // 呼んだ場合（自己言及的な再定義イディオム）は、このワードが辞書に
-        // 追加される前の世代までに限定する（＝自分自身の世代は候補から除外する）。
-        let cutoff = self
+        // 実行中のワード自身と同じ名前を呼んだ場合（自己言及的な再定義
+        // イディオム）は、このワードが辞書に追加される前の世代までに
+        // 限定する（＝自分自身の世代は候補から除外する）。見るのは最上位
+        // フレームのみ。局所処理単語のフレームは外側の`self_ref`を引き継ぐ。
+        let self_ref = self
             .call_stack
-            .iter()
-            .rev()
-            .find_map(|frame| {
-                frame.self_ref.as_ref().and_then(|(self_name, generation)| {
-                    if self_name.as_ref() == name {
-                        Some(*generation)
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or_else(|| self.dictionary.get(name).map(Vec::len).unwrap_or(0));
+            .last()
+            .and_then(|frame| frame.self_ref.clone());
+        let cutoff = match &self_ref {
+            Some((self_name, generation)) if self_name.as_ref() == name => *generation,
+            _ => self.dictionary.get(name).map(Vec::len).unwrap_or(0),
+        };
         if cutoff == 0 {
             return Err(RuntimeError::UndefinedWord(name.to_string()));
         }

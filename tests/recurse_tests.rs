@@ -166,3 +166,54 @@ fn adr0008_local_word_calling_parent_name_resolves_to_prior_generation() {
     );
 }
 
+
+/// テスト用ネイティブ: 初回だけ真、以降は偽を積む（間接再帰を有限回で止める）。
+fn install_once_flag(interp: &mut Interpreter) {
+    let first = Rc::new(RefCell::new(true));
+    interp.register_native("続ける？", move |interp| {
+        let v = std::mem::replace(&mut *first.borrow_mut(), false);
+        interp.push_value(Value::Bool(v));
+        Ok(())
+    });
+}
+
+/// ADR-0008: 自己言及の世代制限は旧世代の本体を実行している最上位フレームだけに
+/// かかる。旧世代`挨拶`が呼んだ別ワード`橋渡し`から`挨拶`を呼ぶ場合は、
+/// スタックに旧世代のフレームが残っていても最新世代に解決される。
+#[test]
+fn adr0008_indirect_call_from_other_word_resolves_to_latest_generation() {
+    let program = parse_src(
+        "挨拶 とは、「一」と 表示して 橋渡しする こと。\n\
+         橋渡し とは\n    続ける？ ならば\n        挨拶する\n    そうでなければ\n        「終」と 表示する\n    つぎに\nこと。\n\
+         挨拶 とは、「二」と 表示して 挨拶する こと。",
+    );
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+    let mut interp = Interpreter::new();
+    install_logging_display(&mut interp, log.clone());
+    install_once_flag(&mut interp);
+    interp.load_program(&program);
+
+    interp.run_word("挨拶").expect("実行に失敗した");
+
+    let expected: Vec<String> = ["二", "一", "二", "一", "終"].map(String::from).into();
+    assert_eq!(*log.borrow(), expected);
+}
+
+/// ADR-0008: 再定義本体内の局所処理単語からの同名呼び出しも、外側の世代境界を
+/// 引き継いで旧世代に解決される（無限再帰にならない）。
+#[test]
+fn adr0008_local_word_inherits_enclosing_generation_boundary() {
+    let program = parse_src(
+        "挨拶 とは、「一」と 表示する こと。\n\
+         挨拶 とは\n    局所 とは\n        「二」と 表示して 挨拶する\n    本体 とは\n        局所\n    こと。",
+    );
+    let log = Rc::new(RefCell::new(Vec::<String>::new()));
+    let mut interp = Interpreter::new();
+    install_logging_display(&mut interp, log.clone());
+    interp.load_program(&program);
+
+    interp.run_word("挨拶").expect("実行に失敗した");
+
+    let expected: Vec<String> = ["二", "一"].map(String::from).into();
+    assert_eq!(*log.borrow(), expected);
+}
